@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Incident, IncidentStatus, InterventionReport, IncidentPriority, Users, User } from '@/types';
 import { apiClient } from '@/integrations/api/client';
 import { showSuccess, showError } from '@/utils/toast';
@@ -11,86 +11,65 @@ interface UseIncidentsProps {
 
 export const useIncidents = ({ currentUser, users, addNotification }: UseIncidentsProps) => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const errorShownRef = useRef(false);
-  const fetchIncidentsRef = useRef<(() => Promise<void>) | null>(null);
 
   // Fetch incidents from API
-  const fetchIncidents = async () => {
-    // Vérifier si l'utilisateur est connecté avant de faire la requête
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    if (!token) {
-      setIncidents([]);
-      errorShownRef.current = false;
-      return;
-    }
+  useEffect(() => {
+    const fetchIncidents = async () => {
+      // Vérifier si l'utilisateur est connecté avant de faire la requête
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      if (!token) {
+        setIncidents([]);
+        return;
+      }
 
-    // Vérifier aussi que le token est défini dans le client API
-    apiClient.setToken(token);
+      // Vérifier aussi que le token est défini dans le client API
+      apiClient.setToken(token);
 
-    try {
-      const data = await apiClient.getIncidents();
-      const fetchedIncidents: Incident[] = data.map((item: any) => {
-        // Debug: vérifier la priorité reçue
-        let rawPriorite = item.priorite;
-        
-        // Normaliser la priorité (convertir en string, enlever espaces, minuscules)
-        let normalizedPriorite = 'moyenne';
-        if (rawPriorite != null && rawPriorite !== undefined) {
-          const strPriorite = String(rawPriorite).trim().toLowerCase();
-          const validPriorities = ['faible', 'moyenne', 'haute', 'critique'];
-          if (validPriorities.includes(strPriorite)) {
-            normalizedPriorite = strPriorite;
+      try {
+        const data = await apiClient.getIncidents();
+        const fetchedIncidents: Incident[] = data.map((item: any) => {
+          // Debug: vérifier la priorité reçue
+          let rawPriorite = item.priorite;
+          
+          // Normaliser la priorité (convertir en string, enlever espaces, minuscules)
+          let normalizedPriorite = 'moyenne';
+          if (rawPriorite != null && rawPriorite !== undefined) {
+            const strPriorite = String(rawPriorite).trim().toLowerCase();
+            const validPriorities = ['faible', 'moyenne', 'haute', 'critique'];
+            if (validPriorities.includes(strPriorite)) {
+              normalizedPriorite = strPriorite;
+            }
           }
-        }
-        
-        console.log('Frontend - Incident priorité reçue:', item.id, 'raw:', rawPriorite, 'normalisée:', normalizedPriorite);
-        
-        return {
-          id: item.id,
-          type: item.type,
-          description: item.description,
-          date_creation: new Date(item.date_creation),
-          reported_by: item.reported_by,
-          statut: item.statut,
-          priorite: normalizedPriorite as IncidentPriority,
-          service: item.service,
-          lieu: item.lieu,
-        photo_urls: Array.isArray(item.photo_urls) ? item.photo_urls : (item.photo_urls ? JSON.parse(item.photo_urls) : []),
-          assigned_to: item.assigned_to,
-          assigned_to_name: item.assigned_to_name || undefined,
-          deadline: item.deadline ? new Date(item.deadline) : undefined,
-          report: item.report ? (typeof item.report === 'string' ? JSON.parse(item.report) : item.report) : undefined,
-        };
-      });
-      setIncidents(fetchedIncidents);
-      // Reset error flag on successful fetch
-      errorShownRef.current = false;
-    } catch (error: any) {
-      // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
-      if (error.status !== 401 && error.status !== 403) {
-        console.error("Error fetching incidents:", error);
-        console.error("Error details:", {
-          message: error.message,
-          response: error.response?.data,
-          status: error.status
+          
+          console.log('Frontend - Incident priorité reçue:', item.id, 'raw:', rawPriorite, 'normalisée:', normalizedPriorite);
+          
+          return {
+            id: item.id,
+            type: item.type,
+            description: item.description,
+            date_creation: new Date(item.date_creation),
+            reported_by: item.reported_by,
+            statut: item.statut,
+            priorite: normalizedPriorite as IncidentPriority,
+            service: item.service,
+            lieu: item.lieu,
+          photo_urls: Array.isArray(item.photo_urls) ? item.photo_urls : (item.photo_urls ? JSON.parse(item.photo_urls) : []),
+            assigned_to: item.assigned_to,
+            assigned_to_name: item.assigned_to_name || undefined,
+            deadline: item.deadline ? new Date(item.deadline) : undefined,
+            report: item.report ? (typeof item.report === 'string' ? JSON.parse(item.report) : item.report) : undefined,
+          };
         });
-        
-        // Only show error once, not on every retry
-        if (!errorShownRef.current) {
-          // Show detailed error message if available from backend
-          const errorMessage = error.response?.data?.message || 
-                              error.response?.data?.suggestion || 
-                              error.message || 
-                              "Erreur lors du chargement des incidents.";
-          showError(errorMessage);
-          errorShownRef.current = true;
+        setIncidents(fetchedIncidents);
+      } catch (error: any) {
+        // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
+        if (error.status !== 401 && error.status !== 403) {
+          console.error("Error fetching incidents:", error.message);
+          showError("Erreur lors du chargement des incidents.");
         }
       }
-    }
-  };
+    };
 
-  useEffect(() => {
-    fetchIncidentsRef.current = fetchIncidents;
     fetchIncidents();
     // Polling toutes les 30 secondes au lieu de temps réel
     const interval = setInterval(fetchIncidents, 30000);
@@ -167,10 +146,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
 
   const updateIncidentStatus = async (incidentId: string, newStatus: IncidentStatus) => {
     let previousIncidents = incidents;
-    const updatedIncident = previousIncidents.find(i => i.id === incidentId);
-    
     try {
-      // Mise à jour optimiste
       setIncidents(prev =>
         prev.map(incident =>
           incident.id === incidentId
@@ -182,16 +158,11 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
         )
       );
 
-      // Appel API
       await apiClient.updateIncident(incidentId, { statut: newStatus });
-      
-      // Rafraîchir les données depuis le serveur pour s'assurer de la cohérence
-      if (fetchIncidentsRef.current) {
-        await fetchIncidentsRef.current();
-      }
-      
       showSuccess(`Le statut du ticket a été mis à jour.`);
 
+      const updatedIncident = previousIncidents.find(i => i.id === incidentId);
+      
       // Déterminer le lien selon le service de l'incident
       let notificationLink = 'qhseTickets';
       if (updatedIncident) {
@@ -214,21 +185,9 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
         addNotification(supervisor.id, `Statut du ticket ${incidentId.substring(0, 8)} mis à jour: ${newStatus}`, notificationLink);
       }
     } catch (error: any) {
-      console.error("Error updating incident status:", error);
-      console.error("Error details:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.status
-      });
-      
-      // Restaurer l'état précédent en cas d'erreur
+      console.error("Error updating incident status:", error.message);
+      showError("Erreur lors de la mise à jour du statut de l'incident.");
       setIncidents(previousIncidents);
-      
-      const errorMessage = error.response?.data?.error || 
-                          error.response?.data?.message || 
-                          error.message || 
-                          "Erreur lors de la mise à jour du statut de l'incident.";
-      showError(errorMessage);
     }
   };
 

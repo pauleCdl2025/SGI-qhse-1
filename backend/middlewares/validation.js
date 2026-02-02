@@ -104,17 +104,6 @@ const validatePasswordUpdate = (req, res, next) => {
   next();
 };
 
-// Middleware de validation pour la réinitialisation de mot de passe par admin (moins restrictif)
-const validateAdminPasswordReset = (req, res, next) => {
-  const { password } = req.body;
-
-  if (!password || password.length < 6) {
-    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
-  }
-
-  next();
-};
-
 // Middleware de validation pour les incidents
 const validateIncident = (req, res, next) => {
   const { type, description, priorite, service, lieu } = req.body;
@@ -190,8 +179,8 @@ const validateVisitor = (req, res, next) => {
 
 // Rate limiting simple (basique, à améliorer avec express-rate-limit en production)
 const loginAttempts = new Map();
-const MAX_LOGIN_ATTEMPTS = 10; // Augmenté pour le développement
-const LOCKOUT_TIME = 5 * 60 * 1000; // 5 minutes (réduit pour le développement)
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
 
 const rateLimitLogin = (req, res, next) => {
   const { email } = req.body;
@@ -230,33 +219,16 @@ const requestLogger = (req, res, next) => {
   next();
 };
 
-// Fonction pour réinitialiser le compteur de tentatives pour un email spécifique
-const resetLoginAttempts = (email) => {
-  if (email) {
-    loginAttempts.delete(email);
-    console.log(`✅ Compteur de tentatives réinitialisé pour: ${email}`);
-  }
-};
-
-// Fonction pour réinitialiser tous les compteurs (utile en développement)
-const resetAllLoginAttempts = () => {
-  loginAttempts.clear();
-  console.log('✅ Tous les compteurs de tentatives ont été réinitialisés');
-};
-
 module.exports = {
   validateSignup,
   validateSignin,
   validatePasswordUpdate,
-  validateAdminPasswordReset,
   validateIncident,
   validateVisitor,
   rateLimitLogin,
   requestLogger,
   sanitizeInput,
-  loginAttempts,
-  resetLoginAttempts,
-  resetAllLoginAttempts
+  loginAttempts
 };
 
 

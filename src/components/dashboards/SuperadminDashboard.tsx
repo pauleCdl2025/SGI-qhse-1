@@ -22,68 +22,21 @@ interface SuperadminDashboardProps {
 
 export const SuperadminDashboard = ({ incidents, users, biomedicalEquipment, bookings, plannedTasks, visitors, onResetData, setActiveTab }: SuperadminDashboardProps) => {
   
-  // Normalisation des statuts pour correspondre aux couleurs
-  const normalizeStatus = (statut: string): string => {
-    const statusMap: Record<string, string> = {
-      'nouveau': 'Nouveau',
-      'cours': 'Cours',
-      'traite': 'Traité',
-      'resolu': 'Résolu',
-      'attente': 'Attente',
-      'en_cours': 'Cours',
-      'en attente': 'Attente'
-    };
-    return statusMap[statut.toLowerCase()] || statut.charAt(0).toUpperCase() + statut.slice(1);
-  };
-
   const incidentsByStatus = incidents.reduce((acc, incident) => {
-    const statusLabel = normalizeStatus(incident.statut);
+    const statusLabel = incident.statut.charAt(0).toUpperCase() + incident.statut.slice(1);
     acc[statusLabel] = (acc[statusLabel] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   const statusData = Object.entries(incidentsByStatus).map(([name, value]) => ({ name, value }));
-  const STATUS_COLORS: Record<string, string> = { 
-    'Nouveau': '#0891B2', 
-    'Cours': '#F59E0B', 
-    'Traité': '#0D9488', 
-    'Résolu': '#10B981', 
-    'Attente': '#6B7280' 
-  };
-
-  // Normalisation des services pour correspondre aux couleurs
-  const normalizeService = (service: string): string => {
-    const serviceMap: Record<string, string> = {
-      'securite': 'Sécurité',
-      'entretien': 'Entretien',
-      'technique': 'Technique',
-      'biomedical': 'Biomédical',
-      'maintenance': 'Entretien',
-      'security': 'Sécurité'
-    };
-    return serviceMap[service.toLowerCase()] || service.charAt(0).toUpperCase() + service.slice(1);
-  };
+  const STATUS_COLORS: Record<string, string> = { 'Nouveau': '#0891B2', 'Cours': '#F59E0B', 'Traite': '#0D9488', 'Resolu': '#10B981', 'Attente': '#6B7280' };
 
   const incidentsByService = incidents.reduce((acc, incident) => {
-    if (incident.service) {
-      const serviceLabel = normalizeService(incident.service);
-      acc[serviceLabel] = (acc[serviceLabel] || 0) + 1;
-    }
+    const serviceLabel = incident.service.charAt(0).toUpperCase() + incident.service.slice(1);
+    acc[serviceLabel] = (acc[serviceLabel] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   const serviceData = Object.entries(incidentsByService).map(([name, value]) => ({ name, value }));
-  
-  // Génération de couleurs dynamiques pour les services
-  const generateServiceColor = (index: number): string => {
-    const colors = ['#EF4444', '#10B981', '#F97316', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F59E0B'];
-    return colors[index % colors.length];
-  };
-  
-  const SERVICE_COLORS: Record<string, string> = {
-    'Sécurité': '#EF4444',
-    'Entretien': '#10B981',
-    'Technique': '#F97316',
-    'Biomédical': '#3B82F6'
-  };
+  const SERVICE_COLORS: Record<string, string> = { 'Securite': '#EF4444', 'Entretien': '#10B981', 'Technique': '#F97316' };
 
   const last7Days = Array.from({ length: 7 }, (_, i) => subDays(new Date(), i)).reverse();
   const dailyActivityData = last7Days.map(day => {
@@ -134,73 +87,33 @@ export const SuperadminDashboard = ({ incidents, users, biomedicalEquipment, boo
         <Card>
           <CardHeader><CardTitle>Répartition des Incidents par Statut</CardTitle></CardHeader>
           <CardContent className="h-96">
-            {statusData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie 
-                    data={statusData} 
-                    dataKey="value" 
-                    nameKey="name" 
-                    cx="50%" 
-                    cy="50%" 
-                    innerRadius={60} 
-                    outerRadius={100} 
-                    paddingAngle={5} 
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  >
-                    {statusData.map((entry) => (
-                      <Cell 
-                        key={`cell-${entry.name}`} 
-                        fill={STATUS_COLORS[entry.name] || '#6B7280'} 
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => [value, 'Incidents']} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <Icon name="BarChart" className="h-12 w-12 mb-4 text-gray-400" />
-                <p className="text-lg font-medium">Aucune donnée disponible</p>
-                <p className="text-sm mt-2">Aucun incident n'a été enregistré pour le moment</p>
-              </div>
-            )}
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} label>
+                  {statusData.map((entry) => (
+                    <Cell key={`cell-${entry.name}`} fill={STATUS_COLORS[entry.name]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>Indicateurs par Service</CardTitle></CardHeader>
           <CardContent className="h-96">
-            {serviceData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie 
-                    data={serviceData} 
-                    dataKey="value" 
-                    nameKey="name" 
-                    cx="50%" 
-                    cy="50%" 
-                    outerRadius={120} 
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  >
-                    {serviceData.map((entry, index) => (
-                      <Cell 
-                        key={`cell-${entry.name}`} 
-                        fill={SERVICE_COLORS[entry.name] || generateServiceColor(index)} 
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => [value, 'Incidents']} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <Icon name="BarChart" className="h-12 w-12 mb-4 text-gray-400" />
-                <p className="text-lg font-medium">Aucune donnée disponible</p>
-                <p className="text-sm mt-2">Aucun incident n'a été enregistré pour le moment</p>
-              </div>
-            )}
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={serviceData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120} label>
+                  {serviceData.map((entry) => (
+                    <Cell key={`cell-${entry.name}`} fill={SERVICE_COLORS[entry.name]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>

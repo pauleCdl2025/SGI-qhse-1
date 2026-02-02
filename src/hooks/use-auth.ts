@@ -39,26 +39,8 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
           position: profile.service,
           role: profile.role,
           pin: profile.pin,
-          added_permissions: (() => {
-            if (Array.isArray(profile.added_permissions)) return profile.added_permissions;
-            if (!profile.added_permissions || profile.added_permissions.trim() === '') return [];
-            try {
-              return JSON.parse(profile.added_permissions);
-            } catch {
-              console.warn('Error parsing added_permissions for', profile.username);
-              return [];
-            }
-          })(),
-          removed_permissions: (() => {
-            if (Array.isArray(profile.removed_permissions)) return profile.removed_permissions;
-            if (!profile.removed_permissions || profile.removed_permissions.trim() === '') return [];
-            try {
-              return JSON.parse(profile.removed_permissions);
-            } catch {
-              console.warn('Error parsing removed_permissions for', profile.username);
-              return [];
-            }
-          })(),
+          added_permissions: Array.isArray(profile.added_permissions) ? profile.added_permissions : (profile.added_permissions ? JSON.parse(profile.added_permissions) : []),
+          removed_permissions: Array.isArray(profile.removed_permissions) ? profile.removed_permissions : (profile.removed_permissions ? JSON.parse(profile.removed_permissions) : []),
         };
       });
       setUsers(fetchedUsers);
@@ -99,25 +81,11 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
           setCurrentUser({ username: profile.username, details: fullUser });
           // Fetch all profiles only if user is authenticated
           await fetchAllProfiles();
-        } catch (error: any) {
+        } catch (error) {
           console.error("Error fetching profile on init:", error);
-          // If profile not found (404) or token invalid (403), clear localStorage and reset auth state
-          if (error.response?.status === 404 || error.message?.includes('Profil non trouvé')) {
-            console.log("Profile not found, clearing authentication data");
-            localStorage.removeItem('currentUserId');
-            localStorage.removeItem('auth_token');
-            setCurrentUser(null);
-          } else if (error.response?.status === 403 || error.message?.includes('Token invalide')) {
-            console.log("Token invalid or expired, clearing authentication data");
-            localStorage.removeItem('currentUserId');
-            localStorage.removeItem('auth_token');
-            setCurrentUser(null);
-          } else {
-            // For other errors, also clear auth state to prevent infinite retries
-            localStorage.removeItem('currentUserId');
-            localStorage.removeItem('auth_token');
-            setCurrentUser(null);
-          }
+          localStorage.removeItem('currentUserId');
+          localStorage.removeItem('auth_token');
+          setCurrentUser(null);
         }
       }
       // Don't fetch profiles if no token - wait for login

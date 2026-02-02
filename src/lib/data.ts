@@ -1,15 +1,15 @@
 import { UserRole } from '@/types';
 
 export const allPermissions = [
-  { id: 'portalSuperadmin', name: 'Portail Superadmin', icon: 'Home' },
-  { id: 'portalAgentSecurite', name: 'Portail Agent Sécurité', icon: 'Home' },
-  { id: 'portalAgentEntretien', name: 'Portail Agent Entretien', icon: 'Home' },
-  { id: 'portalSuperviseurQHSE', name: 'Portail Superviseur QHSE', icon: 'Home' },
-  { id: 'portalSuperviseurSecurite', name: 'Portail Superviseur Sécurité', icon: 'Home' },
-  { id: 'portalUser', name: 'Portail Employé', icon: 'Home' },
+  { id: 'portalSuperadmin', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalAgentSecurite', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalAgentEntretien', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalSuperviseurSecurite', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalUser', name: 'Mon Portail', icon: 'Home' },
   { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-  { id: 'portalMedecin', name: 'Portail Médecin', icon: 'Home' },
-  { id: 'portalSecretaire', name: 'Portail Secrétaire', icon: 'Home' },
+  { id: 'portalMedecin', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalSecretaire', name: 'Mon Portail', icon: 'Home' },
   { id: 'portalBuanderie', name: 'Portail Buanderie', icon: 'Shirt' },
   { id: 'portalTechnicienPolyvalent', name: 'Portail Technicien Polyvalent', icon: 'Wrench' },
   { id: 'dashboardSuperadmin', name: 'Dashboard Superadmin', icon: 'Crown' },
@@ -43,7 +43,9 @@ export const allPermissions = [
   { id: 'qhseLaundry', name: 'Suivi Buanderie', icon: 'Shirt' },
   { id: 'qhseRisks', name: 'Gestion des Risques', icon: 'AlertTriangle' },
   { id: 'qhseReports', name: 'Reporting & Exportation', icon: 'FileBarChart' },
-  { id: 'loginHistory', name: 'Historique des Connexions', icon: 'History' },
+  { id: 'dailyRoundsBiomedical', name: 'Rondes Quotidiennes Biomédical', icon: 'ClipboardCheck' },
+  { id: 'dailyRoundsPolyvalent', name: 'Rondes Quotidiennes Polyvalent', icon: 'ClipboardCheck' },
+  { id: 'dailyRoundsView', name: 'Consultation des Rondes', icon: 'ClipboardCheck' },
 ];
 
 const findPerms = (ids: string[]) => allPermissions.filter(p => ids.includes(p.id));
@@ -56,7 +58,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   ],
   superviseur_qhse: [
     { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningSalles', 'doctors', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'globalRoomOverview', 'qhseAudits', 'qhseTrainings', 'qhseWaste', 'qhseSterilization', 'qhseSterilizationRegister', 'qhseLaundry', 'qhseRisks', 'qhseReports'])
+    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningSalles', 'doctors', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'globalRoomOverview', 'qhseAudits', 'qhseTrainings', 'qhseWaste', 'qhseSterilization', 'qhseSterilizationRegister', 'qhseLaundry', 'qhseRisks', 'qhseReports', 'dailyRoundsView'])
   ],
   secretaire: [{ id: 'portalSecretaire', name: 'Mon Portail', icon: 'Home' }, ...findPerms(['planningSalles', 'visitorLog', 'doctors', 'personalInfo', 'globalRoomOverview', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])],
   medecin: [{ id: 'portalMedecin', name: 'Mon Portail', icon: 'Home' }, ...findPerms(['planningSalles', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])],
@@ -77,7 +79,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   ],
   biomedical: [
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-    ...findPerms(['biomedical', 'maintenanceHistory', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['biomedical', 'maintenanceHistory', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
   ],
   dop: [
     ...findPerms(['dashboardQHSE', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
@@ -95,7 +97,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   // Rôle technicien polyvalent (homme à tout faire)
   technicien_polyvalent: [
     { id: 'portalTechnicienPolyvalent', name: 'Portail Technicien Polyvalent', icon: 'Wrench' },
-    ...findPerms(['maintenanceHistory', 'myTasks', 'planningTasks', 'personalInfo', 'qhseTickets', 'reportIncident', 'reportSecurityIncident', 'reportMaintenanceIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['maintenanceHistory', 'myTasks', 'planningTasks', 'personalInfo', 'qhseTickets', 'dailyRoundsPolyvalent'])
   ],
 };
 

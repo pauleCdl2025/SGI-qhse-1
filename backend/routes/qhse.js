@@ -54,27 +54,6 @@ module.exports = (dbPool, authMiddleware, dbName) => {
 
   const AUTO_ARCHIVE_GRACE_DAYS = 30;
 
-  // Fonction sécurisée pour parser JSON
-  const safeJsonParse = (value, defaultValue = null) => {
-    if (value === null || value === undefined) {
-      return defaultValue;
-    }
-    if (typeof value !== 'string') {
-      return value;
-    }
-    // Vérifier si la chaîne est vide ou ne contient que des espaces
-    const trimmed = value.trim();
-    if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') {
-      return defaultValue;
-    }
-    try {
-      return JSON.parse(value);
-    } catch (error) {
-      console.warn('⚠️ JSON parse error in qhse.js for value:', value, 'Error:', error.message);
-      return defaultValue !== null ? defaultValue : value;
-    }
-  };
-
   // Fonction helper pour vérifier si une table existe
   // Note: tableName doit être une constante hardcodée pour éviter les injections SQL
   const tableExists = async (tableName) => {
@@ -157,7 +136,7 @@ module.exports = (dbPool, authMiddleware, dbName) => {
       
       res.json(documents.map(doc => ({
         ...doc,
-        tags: safeJsonParse(doc.tags, []),
+        tags: doc.tags ? (typeof doc.tags === 'string' ? JSON.parse(doc.tags) : doc.tags) : [],
         validated_by_name: doc.validated_by_name || null
       })));
     } catch (error) {
@@ -292,7 +271,7 @@ module.exports = (dbPool, authMiddleware, dbName) => {
       );
       res.json(audits.map(audit => ({
         ...audit,
-        findings: safeJsonParse(audit.findings, null)
+        findings: audit.findings ? (typeof audit.findings === 'string' ? JSON.parse(audit.findings) : audit.findings) : null
       })));
     } catch (error) {
       if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_TABLE_ERROR') {
@@ -468,7 +447,7 @@ module.exports = (dbPool, authMiddleware, dbName) => {
       );
       res.json(waste.map(w => ({
         ...w,
-        photo_urls: safeJsonParse(w.photo_urls, [])
+        photo_urls: w.photo_urls ? (typeof w.photo_urls === 'string' ? JSON.parse(w.photo_urls) : w.photo_urls) : []
       })));
     } catch (error) {
       if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_TABLE_ERROR') {

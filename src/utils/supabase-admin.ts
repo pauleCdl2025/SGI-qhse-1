@@ -1,19 +1,28 @@
-import { apiClient } from '@/integrations/api/client';
+import { supabase } from '@/integrations/supabase/client';
 import { showError } from './toast';
 
-// This function will call the backend API to reset a user's password
+// This function will call a Supabase Edge Function to reset a user's password
 export const resetUserPassword = async (userId: string, newPassword: string): Promise<boolean> => {
   try {
-    await apiClient.request('/auth/reset-user-password', {
-      method: 'PUT',
-      body: JSON.stringify({ userId, password: newPassword }),
+    const { data, error } = await supabase.functions.invoke('reset-user-password', {
+      body: { userId, newPassword },
     });
 
-    return true;
+    if (error) {
+      showError(`Erreur de la fonction Edge: ${error.message}`);
+      return false;
+    }
+
+    // The Edge Function returns { success: boolean, message: string }
+    if (data && data.success) {
+      return true;
+    } else {
+      showError(data?.message || "Échec de la réinitialisation du mot de passe via la fonction Edge.");
+      return false;
+    }
   } catch (err: any) {
-    console.error("Erreur lors de la réinitialisation du mot de passe:", err);
-    const errorMessage = err.response?.data?.error || err.message || "Échec de la réinitialisation du mot de passe.";
-    showError(errorMessage);
+    console.error("Erreur lors de l'appel de la fonction Edge:", err);
+    showError(`Erreur inattendue: ${err.message}`);
     return false;
   }
 };

@@ -9,7 +9,7 @@ interface ServiceAccessBannerProps {
 
 export const ServiceAccessBanner = ({ setActiveTab }: ServiceAccessBannerProps) => {
   return (
-    <Card className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white shadow-xl border-0">
+    <Card className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white shadow-lg">
       <CardHeader>
         <CardTitle className="flex items-center text-white">
           <Icon name="LayoutGrid" className="mr-2 h-6 w-6" />
@@ -22,7 +22,7 @@ export const ServiceAccessBanner = ({ setActiveTab }: ServiceAccessBannerProps) 
             <Button 
               key={permission.id} 
               variant="secondary" 
-              className="bg-white/25 hover:bg-white/40 backdrop-blur-sm text-white border border-white/30 hover:border-white/50 flex flex-col h-auto py-3 px-2 text-center transition-all duration-200 hover:scale-105 hover:shadow-lg"
+              className="bg-white/20 hover:bg-white/30 text-white flex flex-col h-auto py-3 px-2 text-center"
               onClick={() => setActiveTab(permission.id)}
             >
               <Icon name={permission.icon} className="h-6 w-6 mb-1" />

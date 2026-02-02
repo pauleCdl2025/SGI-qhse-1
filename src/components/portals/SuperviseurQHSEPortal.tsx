@@ -205,6 +205,13 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
             <p className="text-sm text-gray-600">Identifier et traiter</p>
           </CardContent>
         </Card>
+        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('dailyRoundsView')}>
+          <CardContent className="p-6">
+            <Icon name="ClipboardCheck" className="text-purple-600 mb-3 text-3xl" />
+            <h3 className="font-semibold mb-2">Rondes Quotidiennes</h3>
+            <p className="text-sm text-gray-600">Consulter les rondes effectuées</p>
+          </CardContent>
+        </Card>
         <Card className="card-hover cursor-pointer" onClick={() => onNavigate('planningSalles')}>
           <CardContent className="p-6">
             <Icon name="Calendar" className="text-blue-600 mb-3 text-3xl" />

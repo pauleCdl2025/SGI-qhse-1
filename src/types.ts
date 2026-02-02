@@ -579,3 +579,53 @@ export interface Report {
   status: ReportStatus;
   generated_at: Date;
 }
+
+// 9. RONDES QUOTIDIENNES
+export type RoundType = 'biomedical' | 'technicien_polyvalent';
+export type RoundStatus = 'en_cours' | 'terminée' | 'annulée';
+export type ChecklistItemType = 'checkbox' | 'text' | 'number' | 'select';
+
+export interface RoundChecklistTemplate {
+  id: string;
+  round_type: RoundType;
+  title: string;
+  description?: string;
+  item_order: number;
+  is_required: boolean;
+  item_type: ChecklistItemType;
+  options?: string[]; // Pour les items de type select
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+export interface DailyRound {
+  id: string;
+  technician_id: string;
+  technician_name?: string;
+  round_type: RoundType;
+  round_date: Date;
+  start_time?: Date;
+  end_time?: Date;
+  status: RoundStatus;
+  notes?: string;
+  photo_urls?: string[];
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+export interface RoundChecklistResponse {
+  id: string;
+  round_id: string;
+  template_id: string;
+  template?: RoundChecklistTemplate;
+  response_value?: string; // Pour les réponses textuelles ou numériques
+  is_checked: boolean; // Pour les checkboxes
+  observation?: string;
+  photo_urls?: string[];
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+export interface DailyRoundWithResponses extends DailyRound {
+  responses?: RoundChecklistResponse[];
+}

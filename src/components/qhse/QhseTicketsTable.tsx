@@ -93,7 +93,6 @@ interface QhseTicketsTableProps {
   }) => void;
   users: Users;
   currentUserRole?: UserRole; // Ajouter le rôle de l'utilisateur actuel
-  currentUserId?: string; // Ajouter l'ID de l'utilisateur actuel
 }
 
 // Fonction pour obtenir le préfixe du service
@@ -151,7 +150,7 @@ const formatTicketNumber = (incident: Incident, allIncidents: Incident[] = [], u
   return `${prefix}-${roleSuffix ? roleSuffix + '-' : ''}${index}`;
 };
 
-export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, onUnassignTicket, onCreateAndAssignTicket, users, currentUserRole, currentUserId }: QhseTicketsTableProps) => {
+export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, onUnassignTicket, onCreateAndAssignTicket, users, currentUserRole }: QhseTicketsTableProps) => {
   const [filterRequester, setFilterRequester] = useState<ReporterFilter>('all');
   const [filterStatus, setFilterStatus] = useState<IncidentStatus | 'all'>('all');
   const [filterPriority, setFilterPriority] = useState<IncidentPriority | 'all'>('all');
@@ -159,9 +158,6 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
 
   // Seul le superviseur QHSE peut assigner/désassigner des tickets
   const canAssignTickets = currentUserRole === 'superviseur_qhse' || currentUserRole === 'superadmin';
-  
-  // Les agents peuvent gérer leurs propres tickets assignés
-  const canManageOwnTickets = currentUserId !== undefined;
 
   // Utilisation du hook de recherche amélioré
   const { filteredData: searchedIncidents, searchQuery, setSearchQuery } = useFilterAndSearch(
@@ -296,7 +292,6 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
                 </TableCell>
                 <TableCell>
                   <div className="flex space-x-1">
-                    {/* Actions pour les superviseurs QHSE */}
                     {canAssignTickets && (
                       <Button size="sm" onClick={() => setSelectedIncident(incident)} disabled={incident.statut !== 'nouveau'} className="transition-transform hover:scale-105">
                         <Icon name="UserCog" className="mr-1 h-4 w-4" /> Assigner
@@ -308,15 +303,8 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
                           <Button 
                             size="sm" 
                             variant="outline"
-                            disabled={!incident.assigned_to || incident.statut === 'cours' || incident.statut === 'resolu'} 
-                            className="transition-transform hover:scale-105 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={(e) => {
-                              // Empêcher l'ouverture du dialogue si le ticket est en cours ou résolu
-                              if (incident.statut === 'cours' || incident.statut === 'resolu' || !incident.assigned_to) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                              }
-                            }}
+                            disabled={!incident.assigned_to || ['cours', 'traite', 'resolu'].includes(incident.statut)} 
+                            className="transition-transform hover:scale-105 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
                           >
                             <Icon name="UserX" className="mr-1 h-4 w-4" /> Désassigner
                           </Button>
@@ -330,15 +318,7 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Annuler</AlertDialogCancel>
-                            <AlertDialogAction 
-                              onClick={() => {
-                                // Double vérification avant de désassigner
-                                if (incident.statut !== 'cours' && incident.statut !== 'resolu' && incident.assigned_to) {
-                                  onUnassignTicket(incident.id);
-                                }
-                              }} 
-                              className="bg-red-600 hover:bg-red-700"
-                            >
+                            <AlertDialogAction onClick={() => onUnassignTicket(incident.id)} className="bg-red-600 hover:bg-red-700">
                               Oui, désassigner
                             </AlertDialogAction>
                           </AlertDialogFooter>
@@ -349,27 +329,6 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
                       <Button size="sm" variant="secondary" onClick={() => onUpdateStatus(incident.id, 'resolu')} disabled={incident.statut !== 'traite'} className="transition-transform hover:scale-105">
                         <Icon name="CheckCheck" className="mr-1 h-4 w-4" /> Valider
                       </Button>
-                    )}
-                    {/* Actions pour les agents sur leurs tickets assignés */}
-                    {canManageOwnTickets && incident.assigned_to === currentUserId && !canAssignTickets && (
-                      <>
-                        <Button 
-                          size="sm" 
-                          className="bg-blue-500 hover:bg-blue-600 transition-transform hover:scale-105"
-                          onClick={() => onUpdateStatus(incident.id, 'cours')}
-                          disabled={incident.statut === 'cours' || incident.statut === 'traite' || incident.statut === 'resolu'}
-                        >
-                          <Icon name="Play" className="mr-1 h-4 w-4" /> Démarrer
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          className="bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-700 hover:to-teal-700 transition-transform hover:scale-105"
-                          onClick={() => onUpdateStatus(incident.id, 'traite')}
-                          disabled={incident.statut !== 'cours'}
-                        >
-                          <Icon name="Check" className="mr-1 h-4 w-4" /> Terminer
-                        </Button>
-                      </>
                     )}
                   </div>
                 </TableCell>

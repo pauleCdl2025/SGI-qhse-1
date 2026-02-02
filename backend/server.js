@@ -15,14 +15,11 @@ const {
   validateSignup,
   validateSignin,
   validatePasswordUpdate,
-  validateAdminPasswordReset,
   validateIncident,
   validateVisitor,
   rateLimitLogin,
   requestLogger,
-  loginAttempts,
-  resetLoginAttempts,
-  resetAllLoginAttempts
+  loginAttempts
 } = require('./middlewares/validation');
 
 const app = express();
@@ -313,14 +310,6 @@ const authenticateToken = async (req, res, next) => {
     req.user = users[0];
     next();
   } catch (error) {
-    // Si c'est une erreur de connexion à la base de données, la propager
-    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || 
-        error.code === 'ER_BAD_DB_ERROR' || error.code === 'ER_ACCESS_DENIED_ERROR') {
-      console.error('Database error in authenticateToken:', error);
-      // Passer l'erreur au middleware d'erreur global
-      return next(error);
-    }
-    // Pour les erreurs JWT, retourner token invalide
     return res.status(403).json({ error: 'Token invalide' });
   }
 };
@@ -367,8 +356,6 @@ app.post('/api/auth/signup', validateSignup, async (req, res) => {
 app.post('/api/auth/signin', rateLimitLogin, validateSignin, async (req, res) => {
   try {
     const { email, password } = req.body;
-    const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
-    const userAgent = req.headers['user-agent'] || 'unknown';
 
     const [users] = await pool.execute(
       'SELECT * FROM profiles WHERE email = ?',
@@ -376,16 +363,6 @@ app.post('/api/auth/signin', rateLimitLogin, validateSignin, async (req, res) =>
     );
 
     if (users.length === 0) {
-      // Enregistrer la tentative échouée
-      try {
-        await pool.execute(
-          `INSERT INTO login_history (id, user_id, username, email, role, ip_address, user_agent, status, failure_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'failed', 'Email non trouvé')`,
-          [uuidv4(), 'unknown', email, email, 'unknown', ipAddress, userAgent]
-        );
-      } catch (logError) {
-        console.error('Erreur lors de l\'enregistrement de la tentative échouée:', logError);
-      }
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
 
@@ -393,34 +370,12 @@ app.post('/api/auth/signin', rateLimitLogin, validateSignin, async (req, res) =>
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
 
     if (!isValidPassword) {
-      // Enregistrer la tentative échouée
-      try {
-        await pool.execute(
-          `INSERT INTO login_history (id, user_id, username, email, role, ip_address, user_agent, status, failure_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'failed', 'Mot de passe incorrect')`,
-          [uuidv4(), user.id, user.username, user.email, user.role || 'unknown', ipAddress, userAgent]
-        );
-      } catch (logError) {
-        console.error('Erreur lors de l\'enregistrement de la tentative échouée:', logError);
-      }
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
 
     // Réinitialiser le compteur de tentatives en cas de succès
     if (req.rateLimitKey) {
       loginAttempts.delete(req.rateLimitKey);
-    }
-
-    // Enregistrer la connexion réussie
-    try {
-      await pool.execute(
-        `INSERT INTO login_history (id, user_id, username, email, role, ip_address, user_agent, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'success')`,
-        [uuidv4(), user.id, user.username, user.email, user.role || 'unknown', ipAddress, userAgent]
-      );
-    } catch (logError) {
-      console.error('Erreur lors de l\'enregistrement de la connexion:', logError);
-      // Ne pas bloquer la connexion si l'enregistrement échoue
     }
 
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
@@ -439,258 +394,8 @@ app.post('/api/auth/signin', rateLimitLogin, validateSignin, async (req, res) =>
   }
 });
 
-// Endpoint pour réinitialiser le compteur de tentatives (utile en développement)
-app.post('/api/auth/reset-login-attempts', (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    if (email) {
-      resetLoginAttempts(email);
-      res.json({ message: `Compteur réinitialisé pour ${email}` });
-    } else {
-      resetAllLoginAttempts();
-      res.json({ message: 'Tous les compteurs ont été réinitialisés' });
-    }
-  } catch (error) {
-    console.error('Erreur lors de la réinitialisation:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-app.post('/api/auth/signout', authenticateToken, async (req, res) => {
-  try {
-    // Mettre à jour le logout_time pour la dernière connexion de l'utilisateur
-    const userId = req.user.id;
-    const [lastLogin] = await pool.execute(
-      `SELECT id, login_time FROM login_history 
-       WHERE user_id = ? AND status = 'success' AND logout_time IS NULL 
-       ORDER BY login_time DESC LIMIT 1`,
-      [userId]
-    );
-    
-    if (lastLogin.length > 0) {
-      const loginTime = new Date(lastLogin[0].login_time);
-      const logoutTime = new Date();
-      const sessionDuration = Math.floor((logoutTime - loginTime) / 1000);
-      
-      await pool.execute(
-        `UPDATE login_history 
-         SET logout_time = ?, session_duration = ? 
-         WHERE id = ?`,
-        [logoutTime, sessionDuration, lastLogin[0].id]
-      );
-    }
-    
-    res.json({ message: 'Déconnexion réussie' });
-  } catch (error) {
-    console.error('Erreur lors de la déconnexion:', error);
-    res.json({ message: 'Déconnexion réussie' }); // Ne pas bloquer la déconnexion
-  }
-});
-
-// Endpoint pour récupérer l'historique des connexions (admin uniquement)
-app.get('/api/auth/login-history', authenticateToken, async (req, res) => {
-  try {
-    // Vérifier que l'utilisateur est admin
-    if (req.user.role !== 'superadmin' && req.user.role !== 'superviseur_qhse') {
-      return res.status(403).json({ error: 'Accès refusé. Seuls les administrateurs peuvent consulter l\'historique des connexions.' });
-    }
-
-    // Vérifier si la table login_history existe
-    try {
-      const [tables] = await pool.execute(
-        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'login_history'"
-      );
-      if (tables.length === 0) {
-        console.log('⚠️ Table login_history n\'existe pas');
-        return res.status(503).json({ 
-          error: 'La table login_history n\'existe pas encore. Veuillez exécuter le script SQL: database/create_login_history_table.sql',
-          suggestion: 'Exécutez le script SQL pour créer la table: SOURCE database/create_login_history_table.sql;'
-        });
-      }
-      console.log('✅ Table login_history existe');
-    } catch (tableCheckError) {
-      console.error('❌ Erreur lors de la vérification de la table:', tableCheckError);
-      console.error('Stack:', tableCheckError.stack);
-    }
-
-    const { limit = 100, offset = 0, userId, role, status, startDate, endDate } = req.query;
-    
-    let query = `
-      SELECT 
-        lh.id,
-        lh.user_id,
-        lh.username,
-        lh.email,
-        lh.role,
-        lh.ip_address,
-        lh.user_agent,
-        lh.login_time,
-        lh.logout_time,
-        lh.session_duration,
-        lh.status,
-        lh.failure_reason,
-        p.first_name,
-        p.last_name,
-        p.service
-      FROM login_history lh
-      LEFT JOIN profiles p ON lh.user_id = p.id
-      WHERE 1=1
-    `;
-    const queryParams = [];
-
-    if (userId) {
-      query += ' AND lh.user_id = ?';
-      queryParams.push(userId);
-    }
-    if (role) {
-      query += ' AND lh.role = ?';
-      queryParams.push(role);
-    }
-    if (status) {
-      query += ' AND lh.status = ?';
-      queryParams.push(status);
-    }
-    if (startDate) {
-      query += ' AND lh.login_time >= ?';
-      queryParams.push(startDate);
-    }
-    if (endDate) {
-      query += ' AND lh.login_time <= ?';
-      queryParams.push(endDate);
-    }
-
-    // LIMIT et OFFSET doivent être intégrés directement dans la requête, pas comme paramètres
-    const limitValue = parseInt(limit) || 100;
-    const offsetValue = parseInt(offset) || 0;
-    query += ` ORDER BY lh.login_time DESC LIMIT ${limitValue} OFFSET ${offsetValue}`;
-
-    console.log('🔵 Exécution de la requête login_history:', query.substring(0, 150) + '...');
-    console.log('🔵 Paramètres:', queryParams);
-    
-    const [loginHistory] = await pool.execute(query, queryParams);
-    console.log('✅ Requête réussie,', loginHistory.length, 'entrées trouvées');
-
-    // Compter le total pour la pagination
-    let countQuery = `
-      SELECT COUNT(*) as total
-      FROM login_history lh
-      WHERE 1=1
-    `;
-    const countParams = [];
-    if (userId) {
-      countQuery += ' AND lh.user_id = ?';
-      countParams.push(userId);
-    }
-    if (role) {
-      countQuery += ' AND lh.role = ?';
-      countParams.push(role);
-    }
-    if (status) {
-      countQuery += ' AND lh.status = ?';
-      countParams.push(status);
-    }
-    if (startDate) {
-      countQuery += ' AND lh.login_time >= ?';
-      countParams.push(startDate);
-    }
-    if (endDate) {
-      countQuery += ' AND lh.login_time <= ?';
-      countParams.push(endDate);
-    }
-
-    const [countResult] = await pool.execute(countQuery, countParams);
-    const total = countResult[0].total;
-
-    res.json({
-      loginHistory,
-      total,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    });
-  } catch (error) {
-    console.error('❌ Erreur lors de la récupération de l\'historique des connexions:');
-    console.error('Code:', error.code);
-    console.error('Message:', error.message);
-    console.error('Stack trace:', error.stack);
-    
-    // Vérifier si c'est une erreur de table manquante
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.message?.includes('login_history') || error.message?.includes("doesn't exist")) {
-      return res.status(503).json({ 
-        error: 'La table login_history n\'existe pas encore.',
-        suggestion: 'Exécutez le script SQL: SOURCE database/create_login_history_table.sql;',
-        sqlError: error.message
-      });
-    }
-    
-    res.status(500).json({ 
-      error: 'Erreur serveur lors de la récupération de l\'historique',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      code: error.code || 'UNKNOWN_ERROR'
-    });
-  }
-});
-
-// Endpoint pour créer la table login_history si elle n'existe pas (admin uniquement)
-app.post('/api/auth/create-login-history-table', authenticateToken, async (req, res) => {
-  try {
-    // Vérifier que l'utilisateur est admin
-    if (req.user.role !== 'superadmin' && req.user.role !== 'superviseur_qhse') {
-      return res.status(403).json({ error: 'Accès refusé. Seuls les administrateurs peuvent créer la table.' });
-    }
-
-    // Vérifier si la table existe déjà
-    const [tables] = await pool.execute(
-      "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'login_history'"
-    );
-    
-    if (tables.length > 0) {
-      return res.json({ 
-        message: 'La table login_history existe déjà.',
-        exists: true
-      });
-    }
-
-    // Créer la table
-    const createTableSQL = `
-      CREATE TABLE IF NOT EXISTS login_history (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        username VARCHAR(100) NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        role VARCHAR(50) NOT NULL,
-        ip_address VARCHAR(45),
-        user_agent TEXT,
-        login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        logout_time TIMESTAMP NULL,
-        session_duration INT NULL,
-        status ENUM('success', 'failed', 'expired') DEFAULT 'success',
-        failure_reason VARCHAR(255) NULL,
-        INDEX idx_user_id (user_id),
-        INDEX idx_email (email),
-        INDEX idx_login_time (login_time),
-        INDEX idx_role (role),
-        FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
-      )
-    `;
-
-    await pool.execute(createTableSQL);
-    
-    console.log('✅ Table login_history créée avec succès');
-    
-    res.json({ 
-      message: 'Table login_history créée avec succès.',
-      success: true
-    });
-  } catch (error) {
-    console.error('❌ Erreur lors de la création de la table login_history:', error);
-    console.error('Stack:', error.stack);
-    res.status(500).json({ 
-      error: 'Erreur lors de la création de la table',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      code: error.code || 'UNKNOWN_ERROR'
-    });
-  }
+app.post('/api/auth/signout', authenticateToken, (req, res) => {
+  res.json({ message: 'Déconnexion réussie' });
 });
 
 app.put('/api/auth/password', authenticateToken, validatePasswordUpdate, async (req, res) => {
@@ -710,54 +415,13 @@ app.put('/api/auth/password', authenticateToken, validatePasswordUpdate, async (
   }
 });
 
-// Endpoint pour réinitialiser le mot de passe d'un utilisateur (admin uniquement)
-app.put('/api/auth/reset-user-password', authenticateToken, validateAdminPasswordReset, async (req, res) => {
-  try {
-    // Vérifier que l'utilisateur est admin
-    if (req.user.role !== 'superadmin' && req.user.role !== 'superviseur_qhse') {
-      return res.status(403).json({ error: 'Accès refusé. Seuls les administrateurs peuvent réinitialiser les mots de passe.' });
-    }
-
-    const { userId, password } = req.body;
-
-    if (!userId || !password) {
-      return res.status(400).json({ error: 'User ID et mot de passe requis' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const [result] = await pool.execute(
-      'UPDATE profiles SET password_hash = ? WHERE id = ?',
-      [passwordHash, userId]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Utilisateur non trouvé' });
-    }
-
-    res.json({ message: 'Mot de passe réinitialisé avec succès' });
-  } catch (error) {
-    console.error('Erreur lors de la réinitialisation du mot de passe:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
 // Routes pour les profils
 app.get('/api/profiles', authenticateToken, async (req, res) => {
   try {
     const [profiles] = await pool.execute(
       'SELECT id, username, email, first_name, last_name, civility, role, service, pin, added_permissions, removed_permissions, created_at FROM profiles'
     );
-    // Parser les champs JSON de manière sécurisée
-    res.json(profiles.map(profile => ({
-      ...profile,
-      added_permissions: safeJsonParse(profile.added_permissions, []),
-      removed_permissions: safeJsonParse(profile.removed_permissions, [])
-    })));
+    res.json(profiles);
   } catch (error) {
     console.error('Erreur lors de la récupération des profils:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -773,13 +437,7 @@ app.get('/api/profiles/:id', authenticateToken, async (req, res) => {
     if (profiles.length === 0) {
       return res.status(404).json({ error: 'Profil non trouvé' });
     }
-    // Parser les champs JSON de manière sécurisée
-    const profile = profiles[0];
-    res.json({
-      ...profile,
-      added_permissions: safeJsonParse(profile.added_permissions, []),
-      removed_permissions: safeJsonParse(profile.removed_permissions, [])
-    });
+    res.json(profiles[0]);
   } catch (error) {
     console.error('Erreur lors de la récupération du profil:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -793,34 +451,7 @@ app.put('/api/profiles/:id', authenticateToken, async (req, res) => {
       'UPDATE profiles SET added_permissions = ?, removed_permissions = ? WHERE id = ?',
       [JSON.stringify(added_permissions || []), JSON.stringify(removed_permissions || []), req.params.id]
     );
-    
-    // Récupérer le profil mis à jour pour le retourner
-    const [updatedProfiles] = await pool.execute(
-      'SELECT id, username, email, first_name, last_name, civility, role, service, pin, added_permissions, removed_permissions FROM profiles WHERE id = ?',
-      [req.params.id]
-    );
-    
-    if (updatedProfiles.length === 0) {
-      return res.status(404).json({ error: 'Profil non trouvé' });
-    }
-    
-    const profile = updatedProfiles[0];
-    res.json({
-      message: 'Profil mis à jour',
-      profile: {
-        id: profile.id,
-        username: profile.username,
-        email: profile.email,
-        first_name: profile.first_name,
-        last_name: profile.last_name,
-        civility: profile.civility,
-        role: profile.role,
-        service: profile.service,
-        pin: profile.pin,
-        added_permissions: safeJsonParse(profile.added_permissions, []),
-        removed_permissions: safeJsonParse(profile.removed_permissions, [])
-      }
-    });
+    res.json({ message: 'Profil mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du profil:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -849,184 +480,20 @@ const safeJsonParse = (value, defaultValue = null) => {
   if (typeof value !== 'string') {
     return value;
   }
-  // Vérifier si la chaîne est vide ou ne contient que des espaces
-  const trimmed = value.trim();
-  if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') {
-    return defaultValue;
-  }
   try {
     return JSON.parse(value);
-  } catch (error) {
-    console.warn('⚠️ JSON parse error for value:', value, 'Error:', error.message);
+  } catch {
     return defaultValue !== null ? defaultValue : value;
   }
 };
 
-// Health check endpoint for database
-app.get('/api/health/db', async (req, res) => {
-  try {
-    // Test basic connection
-    await pool.execute('SELECT 1');
-    
-    // Check if incidents table exists
-    const [tables] = await pool.execute(
-      "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = ? AND table_name = 'incidents'",
-      [dbConfig.database]
-    );
-    
-    const tableExists = tables[0].count > 0;
-    
-    if (!tableExists) {
-      return res.status(500).json({ 
-        error: 'Table incidents does not exist',
-        database: dbConfig.database,
-        suggestion: 'Please run the database schema.sql file to create the table'
-      });
-    }
-    
-    // Try to query the table structure
-    const [columns] = await pool.execute(
-      "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE table_schema = ? AND table_name = 'incidents'",
-      [dbConfig.database]
-    );
-    
-    res.json({
-      status: 'ok',
-      database: dbConfig.database,
-      tableExists: true,
-      columns: columns.map(c => c.COLUMN_NAME)
-    });
-  } catch (error) {
-    console.error('Database health check error:', error);
-    res.status(500).json({
-      error: 'Database connection failed',
-      message: error.message,
-      code: error.code
-    });
-  }
-});
-
 // Routes pour les incidents
 app.get('/api/incidents', authenticateToken, async (req, res) => {
-  console.log('🔵 GET /api/incidents - Request received');
   try {
-    // First verify table exists (with error handling for connection issues)
-    let tables;
-    try {
-      console.log('🔵 Checking if incidents table exists...');
-      [tables] = await pool.execute(
-        "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = ? AND table_name = 'incidents'",
-        [dbConfig.database]
-      );
-      console.log('🔵 Table check result:', tables[0].count);
-    } catch (tableCheckError) {
-      console.error('❌ Error checking if incidents table exists:', tableCheckError);
-      console.error('This might indicate a database connection issue');
-      throw new Error(`Database connection error: ${tableCheckError.message}`);
-    }
-    
-    if (tables[0].count === 0) {
-      console.error('Table incidents does not exist in database:', dbConfig.database);
-      return res.status(500).json({ 
-        error: 'Table incidents does not exist',
-        message: 'Please run the database schema.sql file to create the incidents table',
-        database: dbConfig.database
-      });
-    }
-    
-    console.log('🔵 Executing SELECT query on incidents table...');
-    
-    // Vérifier que req.user existe (devrait être défini par authenticateToken, mais sécurité supplémentaire)
-    if (!req.user || !req.user.id || !req.user.role) {
-      console.error('❌ req.user is not properly set');
-      console.error('❌ req.user:', req.user);
-      console.error('❌ req.user.id:', req.user?.id);
-      console.error('❌ req.user.role:', req.user?.role);
-      return res.status(401).json({ 
-        error: 'Utilisateur non authentifié',
-        message: 'req.user is not properly set. Please login again.'
-      });
-    }
-    
-    console.log('🔵 User role:', req.user.role, 'User ID:', req.user.id);
-    
-    // Construire la requête SQL selon le rôle de l'utilisateur
-    let query = 'SELECT * FROM incidents';
-    let queryParams = [];
-    let whereConditions = [];
-    
-    const userRole = req.user.role;
-    const userId = req.user.id;
-    
-    // Superadmin et superviseur QHSE voient tous les incidents
-    if (userRole === 'superadmin' || userRole === 'superviseur_qhse') {
-      // Pas de filtre, voir tous les incidents
-      console.log('🔵 User is superadmin or superviseur_qhse - showing all incidents');
-    }
-    // Superviseurs voient les incidents de leur service
-    else if (userRole === 'superviseur_agent_securite') {
-      whereConditions.push("service = 'securite'");
-      console.log('🔵 User is superviseur_agent_securite - filtering by service: securite');
-    }
-    else if (userRole === 'superviseur_agent_entretien') {
-      whereConditions.push("service = 'entretien'");
-      console.log('🔵 User is superviseur_agent_entretien - filtering by service: entretien');
-    }
-    else if (userRole === 'superviseur_technicien') {
-      whereConditions.push("service = 'technique'");
-      console.log('🔵 User is superviseur_technicien - filtering by service: technique');
-    }
-    // Agents et techniciens voient uniquement leurs propres incidents (assignés ou créés)
-    else if (userRole === 'agent_securite') {
-      whereConditions.push("(assigned_to = ? OR reported_by = ?) AND service = 'securite'");
-      queryParams = [userId, userId];
-      console.log('🔵 User is agent_securite - filtering by user ID and service: securite');
-    }
-    else if (userRole === 'agent_entretien') {
-      whereConditions.push("(assigned_to = ? OR reported_by = ?) AND service = 'entretien'");
-      queryParams = [userId, userId];
-      console.log('🔵 User is agent_entretien - filtering by user ID and service: entretien');
-    }
-    else if (userRole === 'technicien') {
-      // Les techniciens voient uniquement les tickets qui leur sont assignés ou qu'ils ont créés
-      // ET qui sont de service 'technique' ou 'biomedical' (selon le contexte)
-      whereConditions.push("(assigned_to = ? OR reported_by = ?) AND (service = 'technique' OR service = 'biomedical')");
-      queryParams = [userId, userId];
-      console.log('🔵 User is technicien - filtering by user ID and services: technique, biomedical');
-    }
-    else if (userRole === 'biomedical') {
-      whereConditions.push("(assigned_to = ? OR reported_by = ?) AND service = 'biomedical'");
-      queryParams = [userId, userId];
-      console.log('🔵 User is biomedical - filtering by user ID and service: biomedical');
-    }
-    else if (userRole === 'technicien_polyvalent') {
-      whereConditions.push("(assigned_to = ? OR reported_by = ?) AND (service = 'technique' OR service = 'biomedical')");
-      queryParams = [userId, userId];
-      console.log('🔵 User is technicien_polyvalent - filtering by user ID and services: technique, biomedical');
-    }
-    // Par défaut, les autres utilisateurs voient uniquement leurs propres incidents
-    else {
-      whereConditions.push("(assigned_to = ? OR reported_by = ?)");
-      queryParams = [userId, userId];
-      console.log('🔵 User is other role - filtering by user ID only');
-    }
-    
-    // Ajouter les conditions WHERE si nécessaire
-    if (whereConditions.length > 0) {
-      query += ' WHERE ' + whereConditions.join(' AND ');
-    }
-    
-    query += ' ORDER BY date_creation DESC';
-    
-    console.log('🔵 Final query:', query);
-    console.log('🔵 Query params:', queryParams);
-    
-    const [incidents] = await pool.execute(query, queryParams);
-    console.log('🔵 Query successful, found', incidents.length, 'incidents');
-    
-    // Mapper les incidents avec gestion d'erreur pour chaque incident
-    const mappedIncidents = incidents.map((inc, index) => {
-      try {
+    const [incidents] = await pool.execute(
+      'SELECT * FROM incidents ORDER BY date_creation DESC'
+    );
+    res.json(incidents.map(inc => {
       // Debug: vérifier la priorité dans la DB
       let rawPriorite = inc.priorite;
       
@@ -1076,68 +543,10 @@ app.get('/api/incidents', authenticateToken, async (req, res) => {
         })(),
         report: safeJsonParse(inc.report, null)
       };
-      } catch (mapError) {
-        console.error(`❌ Error mapping incident ${inc.id || index}:`, mapError);
-        // Retourner l'incident avec des valeurs par défaut en cas d'erreur
-        return {
-          ...inc,
-          priorite: 'moyenne',
-          assigned_to_name: inc.assigned_to_name || null,
-          photo_urls: [],
-          report: null
-        };
-      }
-    });
-    
-    console.log('🔵 Successfully mapped', mappedIncidents.length, 'incidents');
-    res.json(mappedIncidents);
+    }));
   } catch (error) {
-    console.error('❌❌❌ ERREUR DANS /api/incidents ❌❌❌');
-    console.error('❌ Erreur lors de la récupération des incidents:', error);
-    console.error('❌ Stack trace:', error.stack);
-    console.error('❌ Error details:', {
-      message: error.message,
-      code: error.code,
-      errno: error.errno,
-      sqlState: error.sqlState,
-      sqlMessage: error.sqlMessage
-    });
-    console.log('🔵 NODE_ENV:', process.env.NODE_ENV);
-    
-    // Always include error details (default to development mode unless explicitly production)
-    const isProduction = process.env.NODE_ENV === 'production';
-    console.log('🔵 isProduction:', isProduction);
-    
-    const errorResponse = {
-      error: 'Erreur serveur',
-      message: error.message || 'Une erreur est survenue',
-      code: error.code,
-      sqlState: error.sqlState,
-      sqlMessage: error.sqlMessage
-    };
-    
-    // If it's a database connection error, provide helpful message
-    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      errorResponse.message = 'Impossible de se connecter à la base de données MySQL. Vérifiez que MySQL est démarré.';
-      errorResponse.suggestion = 'Assurez-vous que WAMP/XAMPP MySQL est démarré et que les credentials dans backend/.env sont corrects.';
-    } else if (error.code === 'ER_BAD_DB_ERROR') {
-      errorResponse.message = `La base de données "${dbConfig.database}" n'existe pas.`;
-      errorResponse.suggestion = 'Créez la base de données ou vérifiez le nom dans backend/.env';
-    } else if (error.code === 'ER_ACCESS_DENIED_ERROR') {
-      errorResponse.message = 'Accès refusé à la base de données.';
-      errorResponse.suggestion = 'Vérifiez les credentials (utilisateur/mot de passe) dans backend/.env';
-    } else if (error.sqlMessage && error.sqlMessage.includes("doesn't exist")) {
-      errorResponse.message = `Table ou colonne manquante: ${error.sqlMessage}`;
-      errorResponse.suggestion = 'Exécutez database/schema.sql pour créer les tables nécessaires.';
-    } else if (error.message && error.message.includes('Database connection error')) {
-      errorResponse.message = error.message;
-      errorResponse.suggestion = 'Vérifiez la connexion à la base de données et que MySQL est démarré.';
-    }
-    
-    // Always return full details (unless explicitly in production)
-    // This helps with debugging
-    console.log('Sending error response:', errorResponse);
-    res.status(500).json(errorResponse);
+    console.error('Erreur lors de la récupération des incidents:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
@@ -1287,11 +696,7 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
       values
     );
 
-    // Récupérer l'incident mis à jour pour le retourner
-    const [updatedIncidents] = await pool.execute('SELECT * FROM incidents WHERE id = ?', [req.params.id]);
-    const updatedIncident = updatedIncidents[0];
-
-    res.json({ message: 'Incident mis à jour', incident: updatedIncident });
+    res.json({ message: 'Incident mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de l\'incident:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -2686,6 +2091,278 @@ app.delete('/api/audits/action-plans/:id', authenticateToken, async (req, res) =
   }
 });
 
+// =====================================================
+// ROUTES POUR LES RONDES QUOTIDIENNES
+// =====================================================
+
+// Récupérer les rondes quotidiennes
+app.get('/api/daily-rounds', authenticateToken, async (req, res) => {
+  try {
+    const { technician_id, round_type } = req.query;
+    let query = 'SELECT dr.*, p.first_name, p.last_name FROM daily_rounds dr LEFT JOIN profiles p ON dr.technician_id = p.id WHERE 1=1';
+    const params = [];
+
+    if (technician_id && technician_id.trim() !== '') {
+      query += ' AND dr.technician_id = ?';
+      params.push(technician_id);
+    }
+
+    if (round_type && round_type.trim() !== '') {
+      query += ' AND dr.round_type = ?';
+      params.push(round_type);
+    }
+
+    query += ' ORDER BY dr.round_date DESC, dr.created_at DESC';
+
+    const [rounds] = await pool.execute(query, params);
+    res.json(rounds.map(round => ({
+      ...round,
+      technician_name: round.first_name && round.last_name ? `${round.first_name} ${round.last_name}` : null,
+      round_date: round.round_date || null,
+      start_time: round.start_time || null,
+      end_time: round.end_time || null,
+      photo_urls: safeJsonParse(round.photo_urls, []),
+      created_at: round.created_at || null,
+      updated_at: round.updated_at || null,
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération des rondes:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table daily_rounds non trouvée. Veuillez exécuter le script SQL: database/create_daily_rounds_tables.sql' });
+    }
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Créer une ronde quotidienne
+app.post('/api/daily-rounds', authenticateToken, async (req, res) => {
+  try {
+    const { technician_id, round_type, round_date, status, start_time, notes, photo_urls } = req.body;
+    
+    const id = uuidv4();
+    
+    await pool.execute(
+      `INSERT INTO daily_rounds (
+        id, technician_id, round_type, round_date, status, start_time, notes, photo_urls
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        technician_id,
+        round_type,
+        round_date,
+        status || 'en_cours',
+        start_time || null,
+        notes || null,
+        JSON.stringify(photo_urls || [])
+      ]
+    );
+
+    const [newRound] = await pool.execute(
+      'SELECT dr.*, p.first_name, p.last_name FROM daily_rounds dr LEFT JOIN profiles p ON dr.technician_id = p.id WHERE dr.id = ?',
+      [id]
+    );
+
+    res.json({
+      ...newRound[0],
+      technician_name: newRound[0].first_name && newRound[0].last_name ? `${newRound[0].first_name} ${newRound[0].last_name}` : null,
+      photo_urls: safeJsonParse(newRound[0].photo_urls, []),
+    });
+  } catch (error) {
+    console.error('Erreur lors de la création de la ronde:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'Une ronde existe déjà pour cette date et ce technicien' });
+    }
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Mettre à jour une ronde quotidienne
+app.put('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, end_time, notes, photo_urls } = req.body;
+    
+    const updates = [];
+    const values = [];
+    
+    if (status !== undefined) { updates.push('status = ?'); values.push(status); }
+    if (end_time !== undefined) { updates.push('end_time = ?'); values.push(end_time); }
+    if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
+    if (photo_urls !== undefined) { updates.push('photo_urls = ?'); values.push(JSON.stringify(photo_urls)); }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Aucune donnée à mettre à jour' });
+    }
+    
+    values.push(id);
+    await pool.execute(
+      `UPDATE daily_rounds SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      values
+    );
+
+    const [updatedRound] = await pool.execute(
+      'SELECT dr.*, p.first_name, p.last_name FROM daily_rounds dr LEFT JOIN profiles p ON dr.technician_id = p.id WHERE dr.id = ?',
+      [id]
+    );
+
+    res.json({
+      ...updatedRound[0],
+      technician_name: updatedRound[0].first_name && updatedRound[0].last_name ? `${updatedRound[0].first_name} ${updatedRound[0].last_name}` : null,
+      photo_urls: safeJsonParse(updatedRound[0].photo_urls, []),
+    });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour de la ronde:', error);
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Récupérer les templates de checklist
+app.get('/api/round-checklist-templates', authenticateToken, async (req, res) => {
+  try {
+    const { round_type } = req.query;
+    let query = 'SELECT * FROM round_checklist_templates WHERE 1=1';
+    const params = [];
+
+    if (round_type) {
+      query += ' AND round_type = ?';
+      params.push(round_type);
+    }
+
+    query += ' ORDER BY item_order ASC';
+
+    const [templates] = await pool.execute(query, params);
+    res.json(templates.map(template => ({
+      ...template,
+      options: safeJsonParse(template.options, null),
+      created_at: template.created_at || null,
+      updated_at: template.updated_at || null,
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération des templates:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table round_checklist_templates non trouvée. Veuillez exécuter le script SQL: database/create_daily_rounds_tables.sql' });
+    }
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Récupérer les réponses aux checklists
+app.get('/api/round-checklist-responses', authenticateToken, async (req, res) => {
+  try {
+    const { round_id } = req.query;
+    
+    if (!round_id) {
+      return res.status(400).json({ error: 'round_id est requis' });
+    }
+
+    const [responses] = await pool.execute(
+      `SELECT rcr.*, rct.title as template_title, rct.item_type, rct.is_required
+       FROM round_checklist_responses rcr
+       LEFT JOIN round_checklist_templates rct ON rcr.template_id = rct.id
+       WHERE rcr.round_id = ?`,
+      [round_id]
+    );
+
+    res.json(responses.map(response => ({
+      ...response,
+      photo_urls: safeJsonParse(response.photo_urls, []),
+      created_at: response.created_at || null,
+      updated_at: response.updated_at || null,
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération des réponses:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table round_checklist_responses non trouvée. Veuillez exécuter le script SQL: database/create_daily_rounds_tables.sql' });
+    }
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Créer une réponse de checklist
+app.post('/api/round-checklist-responses', authenticateToken, async (req, res) => {
+  try {
+    const { round_id, template_id, response_value, is_checked, observation, photo_urls } = req.body;
+    
+    const id = uuidv4();
+    
+    await pool.execute(
+      `INSERT INTO round_checklist_responses (
+        id, round_id, template_id, response_value, is_checked, observation, photo_urls
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        round_id,
+        template_id,
+        response_value || null,
+        is_checked || false,
+        observation || null,
+        JSON.stringify(photo_urls || [])
+      ]
+    );
+
+    const [newResponse] = await pool.execute(
+      `SELECT rcr.*, rct.title as template_title, rct.item_type, rct.is_required
+       FROM round_checklist_responses rcr
+       LEFT JOIN round_checklist_templates rct ON rcr.template_id = rct.id
+       WHERE rcr.id = ?`,
+      [id]
+    );
+
+    res.json({
+      ...newResponse[0],
+      photo_urls: safeJsonParse(newResponse[0].photo_urls, []),
+    });
+  } catch (error) {
+    console.error('Erreur lors de la création de la réponse:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'Une réponse existe déjà pour ce template et cette ronde' });
+    }
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Mettre à jour une réponse de checklist
+app.put('/api/round-checklist-responses/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { response_value, is_checked, observation, photo_urls } = req.body;
+    
+    const updates = [];
+    const values = [];
+    
+    if (response_value !== undefined) { updates.push('response_value = ?'); values.push(response_value); }
+    if (is_checked !== undefined) { updates.push('is_checked = ?'); values.push(is_checked); }
+    if (observation !== undefined) { updates.push('observation = ?'); values.push(observation); }
+    if (photo_urls !== undefined) { updates.push('photo_urls = ?'); values.push(JSON.stringify(photo_urls)); }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Aucune donnée à mettre à jour' });
+    }
+    
+    values.push(id);
+    await pool.execute(
+      `UPDATE round_checklist_responses SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      values
+    );
+
+    const [updatedResponse] = await pool.execute(
+      `SELECT rcr.*, rct.title as template_title, rct.item_type, rct.is_required
+       FROM round_checklist_responses rcr
+       LEFT JOIN round_checklist_templates rct ON rcr.template_id = rct.id
+       WHERE rcr.id = ?`,
+      [id]
+    );
+
+    res.json({
+      ...updatedResponse[0],
+      photo_urls: safeJsonParse(updatedResponse[0].photo_urls, []),
+    });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour de la réponse:', error);
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
 // Endpoint pour uploader le compte rendu d'un audit
 app.post('/api/audits/upload-report', authenticateToken, uploadAuditReport.single('file'), async (req, res) => {
   try {
@@ -3468,21 +3145,8 @@ app.use((err, req, res, next) => {
     return res.status(err.status).json({ error: err.message || 'Accès non autorisé' });
   }
 
-  // Erreur serveur - inclure les détails en développement
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (isProduction) {
-    res.status(500).json({ error: 'Erreur serveur interne' });
-  } else {
-    // En développement, retourner les détails de l'erreur
-    res.status(500).json({ 
-      error: 'Erreur serveur interne',
-      message: err.message,
-      code: err.code,
-      sqlState: err.sqlState,
-      sqlMessage: err.sqlMessage,
-      stack: err.stack
-    });
-  }
+  // Erreur serveur
+  res.status(500).json({ error: 'Erreur serveur interne' });
 });
 
 // Démarrage du serveur

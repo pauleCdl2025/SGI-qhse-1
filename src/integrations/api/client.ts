@@ -41,17 +41,8 @@ class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Erreur serveur' }));
-      // Include all error details from backend
-      const errorMessage = errorData.message || errorData.error || 'Erreur lors de la requête';
-      const error = new Error(errorMessage);
+      const error = new Error(errorData.error || 'Erreur lors de la requête');
       (error as any).response = { data: errorData, status: response.status };
-      // Log error details for debugging
-      if (response.status >= 500) {
-        console.error(`Server error (${response.status}) on ${endpoint}:`, errorData);
-        if (errorData.suggestion) {
-          console.error('Suggestion:', errorData.suggestion);
-        }
-      }
       throw error;
     }
 
@@ -66,24 +57,6 @@ class ApiClient {
     });
     this.setToken(data.token);
     return data;
-  }
-
-  async getLoginHistory(params?: { limit?: number; offset?: number; userId?: string; role?: string; status?: string; startDate?: string; endDate?: string }) {
-    const queryParams = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-          queryParams.append(key, String(value));
-        }
-      });
-    }
-    return this.request<{ loginHistory: any[]; total: number; limit: number; offset: number }>(`/auth/login-history?${queryParams.toString()}`);
-  }
-
-  async createLoginHistoryTable() {
-    return this.request<{ message: string; success?: boolean; exists?: boolean }>('/auth/create-login-history-table', {
-      method: 'POST',
-    });
   }
 
   async signUp(userData: any) {
@@ -657,6 +630,47 @@ class ApiClient {
   async ensureSuperadmin() {
     return this.request<{ success: boolean; message: string }>('/ensure-superadmin', {
       method: 'POST',
+    });
+  }
+
+  // Rondes quotidiennes
+  async getDailyRounds(technicianId: string, roundType: string) {
+    return this.request<any[]>(`/daily-rounds?technician_id=${technicianId}&round_type=${roundType}`);
+  }
+
+  async createDailyRound(round: any) {
+    return this.request('/daily-rounds', {
+      method: 'POST',
+      body: JSON.stringify(round),
+    });
+  }
+
+  async updateDailyRound(id: string, data: any) {
+    return this.request(`/daily-rounds/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getRoundChecklistTemplates(roundType: string) {
+    return this.request<any[]>(`/round-checklist-templates?round_type=${roundType}`);
+  }
+
+  async getRoundChecklistResponses(roundId: string) {
+    return this.request<any[]>(`/round-checklist-responses?round_id=${roundId}`);
+  }
+
+  async createRoundChecklistResponse(response: any) {
+    return this.request('/round-checklist-responses', {
+      method: 'POST',
+      body: JSON.stringify(response),
+    });
+  }
+
+  async updateRoundChecklistResponse(id: string, data: any) {
+    return this.request(`/round-checklist-responses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
     });
   }
 }

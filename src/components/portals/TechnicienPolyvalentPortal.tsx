@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/Icon";
 import { DashboardCard } from "@/components/shared/DashboardCard";
-import { IncidentHistoryCard } from "@/components/shared/IncidentHistoryCard";
 import { User, MaintenanceTask, Incident, Notification } from "@/types";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -17,7 +16,6 @@ interface PortalProps {
   incidents: Incident[];
   notifications: Notification[];
   onNavigate: (tabId: string) => void;
-  onDeleteIncident?: (incidentId: string) => void;
 }
 
 // Portail Technicien Polyvalent
@@ -26,8 +24,7 @@ export const TechnicienPolyvalentPortal = ({
   maintenanceTasks, 
   incidents, 
   notifications,
-  onNavigate,
-  onDeleteIncident 
+  onNavigate 
 }: PortalProps) => {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const today = new Date();
@@ -38,10 +35,6 @@ export const TechnicienPolyvalentPortal = ({
     pendingIncidents: incidents.filter(i => i.statut === 'nouveau' || i.statut === 'cours' || i.statut === 'attente').length,
     myTasks: 0, // Sera calculé depuis les plannedTasks si disponible
   };
-
-  // Incidents déclarés par l'utilisateur
-  const myReportedIncidents = incidents.filter(i => i.reported_by === user.id && i.service !== 'biomedical');
-  const myEquipmentDeclarations = incidents.filter(i => i.reported_by === user.id && i.service === 'biomedical');
 
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
@@ -253,79 +246,27 @@ export const TechnicienPolyvalentPortal = ({
           </CardContent>
         </Card>
 
-        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('reportIncident')}>
+        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('dailyRoundsPolyvalent')}>
           <CardHeader>
             <CardTitle className="flex items-center">
-              <Icon name="AlertCircle" className="text-red-600 mr-2" />
-              Signaler un Incident
+              <Icon name="ClipboardCheck" className="text-indigo-600 mr-2" />
+              Ronde Quotidienne
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 mb-4">Déclarer un incident général</p>
+            <p className="text-gray-600 mb-4">Effectuer votre ronde quotidienne</p>
             <div className="space-y-2">
               <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-red-600 mr-2" />
-                Signaler un problème
+                <Icon name="Check" className="text-indigo-600 mr-2" />
+                Checklist de ronde
               </div>
               <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-red-600 mr-2" />
-                Ajouter des photos
+                <Icon name="Check" className="text-indigo-600 mr-2" />
+                Vérifications quotidiennes
               </div>
               <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-red-600 mr-2" />
-                Définir la priorité
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('reportSecurityIncident')}>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Icon name="Shield" className="text-blue-600 mr-2" />
-              Incident de Sécurité
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600 mb-4">Signaler un incident de sécurité</p>
-            <div className="space-y-2">
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-blue-600 mr-2" />
-                Vol, agression, intrusion
-              </div>
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-blue-600 mr-2" />
-                Dégradation, autre
-              </div>
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-blue-600 mr-2" />
-                Transmission au service sécurité
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('reportBiomedicalIncident')}>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Icon name="Stethoscope" className="text-teal-600 mr-2" />
-              Déclarer Équipement HS
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600 mb-4">Signaler un équipement biomédical défectueux</p>
-            <div className="space-y-2">
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-teal-600 mr-2" />
-                Défaut équipement médical
-              </div>
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-teal-600 mr-2" />
-                Maintenance préventive
-              </div>
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-teal-600 mr-2" />
-                Transmission au service biomédical
+                <Icon name="Check" className="text-indigo-600 mr-2" />
+                Historique des rondes
               </div>
             </div>
           </CardContent>
@@ -403,26 +344,6 @@ export const TechnicienPolyvalentPortal = ({
         </Card>
       )}
 
-      {/* Mes incidents déclarés */}
-      <IncidentHistoryCard
-        title="Mes incidents signalés"
-        subtitle="Tickets QHSE ou maintenance déclarés avec votre compte"
-        incidents={myReportedIncidents}
-        allIncidents={incidents}
-        emptyMessage="Vous n'avez pas encore déclaré d'incident."
-        onDelete={onDeleteIncident}
-      />
-
-      {/* Mes déclarations d'équipement */}
-      <IncidentHistoryCard
-        title="Mes déclarations d'équipement"
-        subtitle="Suivi de vos signalements biomédicaux"
-        incidents={myEquipmentDeclarations}
-        allIncidents={incidents}
-        emptyMessage="Vous n'avez pas encore déclaré d'équipement en panne."
-        onDelete={onDeleteIncident}
-      />
-
       {/* Informations importantes */}
       <Card className="bg-cyan-50 border-cyan-200">
         <CardHeader>
@@ -440,7 +361,7 @@ export const TechnicienPolyvalentPortal = ({
               <strong>Planning :</strong> Vous pouvez établir et gérer votre propre planning de tâches pour organiser vos interventions.
             </p>
             <p>
-              <strong>Incidents :</strong> Vous pouvez déclarer des incidents (sécurité, entretien, biomédical) et consulter les tickets QHSE qui vous ont été assignés ainsi que vos propres déclarations.
+              <strong>Incidents :</strong> Vous pouvez consulter uniquement les tickets QHSE qui vous ont été assignés. Vous ne pouvez pas déclarer d'incidents (sécurité, entretien, biomédical).
             </p>
             <p>
               <strong>Maintenances :</strong> Consultez l'historique des maintenances et suivez les interventions planifiées.

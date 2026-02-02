@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { User, Incident, IncidentStatus, InterventionReport, IncidentPriority, Visitor, BiomedicalEquipment, MaintenanceTask, MaintenanceTaskStatus, Notification, UserRole, Users, Room, Booking, Doctor, BiomedicalEquipmentStatus, PlannedTask, PlannedTaskStatus, Civility } from '@/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { roleConfig, allPermissions } from '@/lib/data';
+import { roleConfig } from '@/lib/data';
 import { NotificationBell } from '@/components/shared/NotificationBell';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -19,7 +19,6 @@ import { SecurityDashboard } from '@/components/dashboards/SecurityDashboard';
 import ReportProblemForm from '@/components/maintenance/ReportProblemForm';
 import AssignedTasksTable from '@/components/maintenance/AssignedTasksTable';
 import { UserManagement } from '@/components/qhse/UserManagement';
-import { LoginHistoryTable } from '@/components/admin/LoginHistoryTable';
 import { TechnicianInterventionsTable } from '@/components/technician/TechnicianInterventionsTable';
 import { TechnicianHistoryTable } from '@/components/technician/TechnicianHistoryTable';
 import { InterventionReportDialog } from '@/components/technician/InterventionReportDialog';
@@ -43,6 +42,7 @@ import { PersonalInfo } from '@/components/shared/PersonalInfo';
 import { KpiDashboard } from '@/components/dashboards/KpiDashboard';
 import { GlobalRoomOverview } from '@/components/planning/GlobalRoomOverview'; // Import du nouveau composant
 import { AuditsList, TrainingsList, MedicalWasteList, SterilizationCyclesList, SterilizationRegisterList, RisksList, LaundryTrackingList, QHSEReportsModule } from '@/components/qhse';
+import { DailyRoundsList, DailyRoundsView } from '@/components/rounds';
 import { 
   filterIncidentsByRole, 
   filterVisitorsByRole, 
@@ -171,7 +171,7 @@ const QHSEDashboard = ({ incidents, updateIncidentStatus, assignTicket, unassign
       <h2 className="text-2xl font-bold text-gray-800 flex items-center">
         <Icon name="UserCog" className="text-cyan-600 mr-2" />Dashboard Superviseur QHSE
       </h2>
-      <QhseTicketsTable incidents={incidents} onUpdateStatus={updateIncidentStatus} onAssignTicket={assignTicket} onUnassignTicket={unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={users} currentUserRole={user.role} currentUserId={user.id} />
+      <QhseTicketsTable incidents={incidents} onUpdateStatus={updateIncidentStatus} onAssignTicket={assignTicket} onUnassignTicket={unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={users} currentUserRole={user.role} />
       {canPlanIntervention && (
         <PlanInterventionForm onPlanIntervention={planIntervention} currentUser={user} users={users} />
       )}
@@ -312,25 +312,7 @@ const BiomedicalDashboard = ({ biomedicalEquipment, addBiomedicalEquipment, upda
 const DashboardPage = (props: DashboardPageProps) => {
   const { user, username, onLogout, notifications, markNotificationsAsRead, markNotificationAsRead, onUpdatePassword } = props;
   
-  // Calculer les onglets disponibles en tenant compte des permissions ajoutées/retirées
-  const userTabs = useMemo(() => {
-    const baseTabs = roleConfig[user.role] || [];
-    const basePermissionIds = new Set(baseTabs.map(tab => tab.id));
-    
-    // Retirer les permissions retirées
-    user.removed_permissions?.forEach(permId => basePermissionIds.delete(permId));
-    
-    // Ajouter les permissions ajoutées
-    user.added_permissions?.forEach(permId => {
-      const permission = allPermissions.find(p => p.id === permId);
-      if (permission) {
-        basePermissionIds.add(permId);
-      }
-    });
-    
-    // Retourner les onglets correspondants
-    return allPermissions.filter(perm => basePermissionIds.has(perm.id));
-  }, [user.role, user.removed_permissions, user.added_permissions]);
+  const userTabs = roleConfig[user.role];
   
   // Déterminer le portail par défaut selon le rôle
   const getDefaultPortal = () => {
@@ -634,7 +616,6 @@ const DashboardPage = (props: DashboardPageProps) => {
           incidents={filteredData.incidents}
           notifications={props.notifications}
           onNavigate={setActiveTab}
-          onDeleteIncident={props.deleteIncident}
         />;
       
       // Modules existants
@@ -673,7 +654,7 @@ const DashboardPage = (props: DashboardPageProps) => {
         // Le technicien polyvalent ne voit que les tickets qui lui sont assignés
         if (user.role === 'technicien_polyvalent') {
           const filteredIncidents = props.incidents.filter(i => i.assigned_to === user.id);
-          return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} currentUserId={user.id} />;
+          return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} />;
         }
         const serviceFilter = user.role === 'superviseur_agent_securite' ? 'securite' :
                               user.role === 'superviseur_agent_entretien' ? 'entretien' :
@@ -681,7 +662,7 @@ const DashboardPage = (props: DashboardPageProps) => {
         const filteredIncidents = serviceFilter === 'all'
           ? props.incidents.filter(i => i.service !== 'biomedical')
           : props.incidents.filter(i => i.service === serviceFilter);
-        return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} currentUserId={user.id} />;
+        return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} />;
       case 'reportIncident':
         return user.role === 'agent_securite' || user.role === 'superviseur_agent_securite' ? <ReportSecurityIncidentForm onAddIncident={props.addIncident} /> : <ReportProblemForm onAddIncident={props.addIncident} />;
       case 'reportSecurityIncident':
@@ -746,20 +727,6 @@ const DashboardPage = (props: DashboardPageProps) => {
           );
         }
         return <UserManagement currentUserRole={user.role} users={props.users} addUser={props.addUser} deleteUser={props.deleteUser} updateUserPermissions={props.updateUserPermissions} />;
-      case 'loginHistory':
-        if (user.role !== 'superadmin' && user.role !== 'superviseur_qhse') {
-          return (
-            <div className="p-6">
-              <Alert variant="destructive" className="max-w-xl">
-                <AlertTitle>Accès refusé</AlertTitle>
-                <AlertDescription>
-                  L'historique des connexions est réservé aux administrateurs.
-                </AlertDescription>
-              </Alert>
-            </div>
-          );
-        }
-        return <LoginHistoryTable users={props.users} />;
       case 'securityIncidents':
         return <SecurityIncidentsTable incidents={props.incidents.filter(i => i.service === 'securite')} allIncidents={props.incidents} />;
       case 'maintenanceHistory':
@@ -840,6 +807,12 @@ const DashboardPage = (props: DashboardPageProps) => {
         return <LaundryTrackingList currentUser={user} />;
       case 'qhseReports':
         return <QHSEReportsModule />;
+      case 'dailyRoundsBiomedical':
+        return <DailyRoundsList user={user} roundType="biomedical" />;
+      case 'dailyRoundsPolyvalent':
+        return <DailyRoundsList user={user} roundType="technicien_polyvalent" />;
+      case 'dailyRoundsView':
+        return <DailyRoundsView users={props.users} />;
       default:
         return <SuperadminDashboard 
           incidents={props.incidents} 

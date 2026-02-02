@@ -18,27 +18,17 @@ interface ManagePermissionsDialogProps {
 
 export const EditUserPermissionsDialog = ({ user, username, isOpen, onClose, onSavePermissions }: ManagePermissionsDialogProps) => {
   const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set());
-  const [lastUserId, setLastUserId] = useState<string | null>(null);
 
-  const basePermissions = useMemo(() => new Set<string>(roleConfig[user.role]?.map(p => p.id) || []), [user.role]);
+  const basePermissions = useMemo(() => new Set<string>(roleConfig[user.role].map(p => p.id)), [user.role]);
 
   useEffect(() => {
-    // Réinitialiser uniquement quand le dialog s'ouvre ou quand l'utilisateur change
-    if (isOpen && user && (lastUserId !== user.id || lastUserId === null)) {
+    if (user) {
       const effectivePermissions = new Set(basePermissions);
       user.removed_permissions?.forEach(p => effectivePermissions.delete(p));
       user.added_permissions?.forEach(p => effectivePermissions.add(p));
       setSelectedPermissions(effectivePermissions);
-      setLastUserId(user.id);
     }
-  }, [isOpen, user, basePermissions, lastUserId]);
-
-  // Réinitialiser quand le dialog se ferme
-  useEffect(() => {
-    if (!isOpen) {
-      setLastUserId(null);
-    }
-  }, [isOpen]);
+  }, [user, basePermissions]);
 
   const handleTogglePermission = (permissionId: string, checked: boolean) => {
     setSelectedPermissions(prev => {

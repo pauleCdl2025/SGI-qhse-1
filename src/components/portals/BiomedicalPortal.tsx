@@ -410,6 +410,13 @@ export const BiomedicalPortal = ({ user, biomedicalEquipment, maintenanceTasks, 
             <p className="text-sm text-gray-600">Piloter la performance biomédicale</p>
           </CardContent>
         </Card>
+        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('dailyRoundsBiomedical')}>
+          <CardContent className="p-6">
+            <Icon name="ClipboardCheck" className="text-purple-600 mb-3 text-3xl" />
+            <h3 className="font-semibold mb-2">Ronde Quotidienne</h3>
+            <p className="text-sm text-gray-600">Effectuer votre ronde quotidienne</p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

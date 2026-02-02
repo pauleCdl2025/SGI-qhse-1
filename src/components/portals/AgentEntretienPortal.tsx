@@ -9,8 +9,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import { PortalExcelActions } from "@/components/shared/PortalExcelActions";
-import { roleConfig, allPermissions } from "@/lib/data";
-import { useMemo } from "react";
 
 interface PortalProps {
   user: User;
@@ -115,16 +113,6 @@ const formatTicketNumber = (incident: Incident, allIncidents: Incident[] = []): 
 export const AgentEntretienPortal = ({ user, incidents, plannedTasks, notifications, onNavigate, onDeleteIncident, users }: PortalProps) => {
   const today = new Date();
   const todayStr = today.toDateString();
-  
-  // Calculer les permissions effectives
-  const effectivePermissions = useMemo(() => {
-    const basePermissions = new Set(roleConfig[user.role]?.map(p => p.id) || []);
-    user.removed_permissions?.forEach(p => basePermissions.delete(p));
-    user.added_permissions?.forEach(p => basePermissions.add(p));
-    return basePermissions;
-  }, [user.role, user.removed_permissions, user.added_permissions]);
-  
-  const hasPermission = (permissionId: string) => effectivePermissions.has(permissionId);
   
   const maintenanceIncidents = incidents.filter(i => i.service === 'entretien');
   const qhseIncidents = incidents.filter(i => i.service === 'entretien' || i.service === 'technique');
@@ -248,24 +236,13 @@ export const AgentEntretienPortal = ({ user, incidents, plannedTasks, notificati
                 <p className="text-sm text-gray-600">Tâches assignées</p>
               </CardContent>
             </Card>
-            {hasPermission('dashboardQHSE') && (
-              <Card className="card-hover cursor-pointer" onClick={() => onNavigate('dashboardQHSE')}>
-                <CardContent className="p-6">
-                  <Icon name="UserCog" className="text-blue-600 mb-3 text-3xl" />
-                  <h3 className="font-semibold mb-2">Dashboard QHSE</h3>
-                  <p className="text-sm text-gray-600">Vue d'ensemble</p>
-                </CardContent>
-              </Card>
-            )}
-            {hasPermission('planningSalles') && (
-              <Card className="card-hover cursor-pointer" onClick={() => onNavigate('planningSalles')}>
-                <CardContent className="p-6">
-                  <Icon name="Calendar" className="text-purple-600 mb-3 text-3xl" />
-                  <h3 className="font-semibold mb-2">Planning Salles</h3>
-                  <p className="text-sm text-gray-600">Gérer les réservations</p>
-                </CardContent>
-              </Card>
-            )}
+            <Card className="card-hover cursor-pointer" onClick={() => onNavigate('dashboardQHSE')}>
+              <CardContent className="p-6">
+                <Icon name="UserCog" className="text-blue-600 mb-3 text-3xl" />
+                <h3 className="font-semibold mb-2">Dashboard QHSE</h3>
+                <p className="text-sm text-gray-600">Vue d'ensemble</p>
+              </CardContent>
+            </Card>
             <Card className="card-hover cursor-pointer" onClick={() => onNavigate('qhseTickets')}>
               <CardContent className="p-6">
                 <Icon name="Ticket" className="text-cyan-600 mb-3 text-3xl" />
