@@ -10,6 +10,8 @@ import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
 
 interface RoundChecklistFormProps {
   round: DailyRound;
@@ -128,6 +130,9 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
   });
 
   const allRequiredCompleted = requiredItems.length > 0 && completedRequiredItems.length === requiredItems.length;
+  const completionPercentage = requiredItems.length > 0 
+    ? Math.round((completedRequiredItems.length / requiredItems.length) * 100)
+    : 100;
 
   if (loading) {
     return <div className="text-center py-8">Chargement...</div>;
@@ -135,6 +140,33 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
 
   return (
     <div className="space-y-6">
+      {/* Indicateur de progression */}
+      <Card className="bg-gradient-to-r from-cyan-50 to-blue-50 border-cyan-200">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Icon name="ClipboardCheck" className="text-cyan-600" />
+              <span className="font-semibold text-gray-700">Progression de la checklist</span>
+            </div>
+            <span className="text-sm font-bold text-cyan-600">{completionPercentage}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div
+              className={`h-3 rounded-full transition-all duration-300 ${
+                completionPercentage === 100 
+                  ? 'bg-green-500' 
+                  : completionPercentage >= 50 
+                    ? 'bg-yellow-500' 
+                    : 'bg-red-500'
+              }`}
+              style={{ width: `${completionPercentage}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-600 mt-2">
+            {completedRequiredItems.length} / {requiredItems.length} items requis complétés
+          </p>
+        </CardContent>
+      </Card>
       <div className="grid gap-4">
         {templates.map((template) => {
           const response = responses[template.id];
@@ -236,8 +268,16 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
       </Card>
 
       <div className="flex justify-between items-center pt-4 border-t">
-        <div className="text-sm text-gray-600">
-          {completedRequiredItems.length} / {requiredItems.length} items requis complétés
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-600">
+            {completedRequiredItems.length} / {requiredItems.length} items requis complétés
+          </div>
+          {round.start_time && (
+            <div className="text-xs text-gray-500 flex items-center gap-1">
+              <Icon name="Clock" className="h-3 w-3" />
+              Débutée à {format(new Date(round.start_time), "HH:mm", { locale: fr })}
+            </div>
+          )}
         </div>
         <Button
           onClick={handleCompleteRound}

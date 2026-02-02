@@ -64,11 +64,9 @@ INSERT INTO round_checklist_templates (id, round_type, title, description, item_
 (UUID(), 'biomedical', 'Vérification des températures', 'Contrôler les températures des équipements réfrigérés', 3, TRUE, 'number'),
 (UUID(), 'biomedical', 'Inspection visuelle', 'Inspection visuelle générale des équipements', 4, TRUE, 'checkbox'),
 (UUID(), 'biomedical', 'Vérification des câbles et connexions', 'Contrôler l\'état des câbles et connexions électriques', 5, TRUE, 'checkbox'),
-(UUID(), 'biomedical', 'Anesthésie - Date prévue', 'Date souhaitée pour l\'anesthésie', 6, TRUE, 'text'),
-(UUID(), 'biomedical', 'Anesthésie - Heure prévue', 'Heure souhaitée pour l\'anesthésie', 7, TRUE, 'text'),
-(UUID(), 'biomedical', 'Nettoyage des équipements', 'Nettoyage des surfaces et écrans', 8, FALSE, 'checkbox'),
-(UUID(), 'biomedical', 'Vérification des stocks consommables', 'Contrôler les niveaux de stocks des consommables', 9, FALSE, 'checkbox'),
-(UUID(), 'biomedical', 'Observations générales', 'Notes et observations diverses', 10, FALSE, 'text');
+(UUID(), 'biomedical', 'Nettoyage des équipements', 'Nettoyage des surfaces et écrans', 6, FALSE, 'checkbox'),
+(UUID(), 'biomedical', 'Vérification des stocks consommables', 'Contrôler les niveaux de stocks des consommables', 7, FALSE, 'checkbox'),
+(UUID(), 'biomedical', 'Observations générales', 'Notes et observations diverses', 8, FALSE, 'text');
 
 -- Insertion des templates de checklist pour le technicien polyvalent
 INSERT INTO round_checklist_templates (id, round_type, title, description, item_order, is_required, item_type) VALUES
