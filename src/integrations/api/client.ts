@@ -634,8 +634,12 @@ class ApiClient {
   }
 
   // Rondes quotidiennes
-  async getDailyRounds(technicianId: string, roundType: string) {
-    return this.request<any[]>(`/daily-rounds?technician_id=${technicianId}&round_type=${roundType}`);
+  async getDailyRounds(technicianId?: string, roundType?: string) {
+    const params = new URLSearchParams();
+    if (technicianId) params.append('technician_id', technicianId);
+    if (roundType) params.append('round_type', roundType);
+    const queryString = params.toString();
+    return this.request<any[]>(`/daily-rounds${queryString ? '?' + queryString : ''}`);
   }
 
   async createDailyRound(round: any) {
@@ -649,6 +653,12 @@ class ApiClient {
     return this.request(`/daily-rounds/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  }
+
+  async deleteDailyRound(id: string) {
+    return this.request(`/daily-rounds/${id}`, {
+      method: 'DELETE',
     });
   }
 

@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
-import { DailyRound, RoundType, RoundStatus, RoundChecklistResponse, Users } from "@/types";
+import { DailyRound, RoundType, RoundStatus, RoundChecklistResponse, RoundChecklistTemplate, Users } from "@/types";
 import { apiClient } from "@/integrations/api/client";
 import { showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,6 +43,7 @@ export const DailyRoundsView = ({ users }: DailyRoundsViewProps) => {
   const [selectedRound, setSelectedRound] = useState<DailyRound | null>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [roundResponses, setRoundResponses] = useState<RoundChecklistResponse[]>([]);
+  const [templates, setTemplates] = useState<RoundChecklistTemplate[]>([]);
   const [filterType, setFilterType] = useState<string>('all');
   const [filterTechnician, setFilterTechnician] = useState<string>('all');
   const [filterDate, setFilterDate] = useState<string>('');
@@ -59,9 +60,9 @@ export const DailyRoundsView = ({ users }: DailyRoundsViewProps) => {
   const fetchAllRounds = async () => {
     try {
       setLoading(true);
-      // Récupérer toutes les rondes (sans filtre)
-      const biomedicalRounds = await apiClient.getDailyRounds('', 'biomedical');
-      const polyvalentRounds = await apiClient.getDailyRounds('', 'technicien_polyvalent');
+      // Récupérer toutes les rondes (sans filtre technician_id)
+      const biomedicalRounds = await apiClient.getDailyRounds(undefined, 'biomedical');
+      const polyvalentRounds = await apiClient.getDailyRounds(undefined, 'technicien_polyvalent');
       
       const allRounds = [
         ...biomedicalRounds.map((r: any) => ({
@@ -90,10 +91,18 @@ export const DailyRoundsView = ({ users }: DailyRoundsViewProps) => {
     }
   };
 
-  const fetchRoundResponses = async (roundId: string) => {
+  const fetchRoundResponses = async (roundId: string, roundType: RoundType) => {
     try {
-      const responses = await apiClient.getRoundChecklistResponses(roundId);
+      // Charger les templates et les réponses en parallèle
+      const [responses, templatesData] = await Promise.all([
+        apiClient.getRoundChecklistResponses(roundId),
+        apiClient.getRoundChecklistTemplates(roundType)
+      ]);
+      
       setRoundResponses(responses);
+      setTemplates(templatesData.sort((a: RoundChecklistTemplate, b: RoundChecklistTemplate) => 
+        (a.item_order || 0) - (b.item_order || 0)
+      ));
     } catch (error: any) {
       showError("Erreur lors du chargement des réponses: " + error.message);
     }
@@ -101,7 +110,7 @@ export const DailyRoundsView = ({ users }: DailyRoundsViewProps) => {
 
   const handleViewRound = async (round: DailyRound) => {
     setSelectedRound(round);
-    await fetchRoundResponses(round.id);
+    await fetchRoundResponses(round.id, round.round_type);
     setIsDetailsDialogOpen(true);
   };
 
@@ -273,116 +282,250 @@ export const DailyRoundsView = ({ users }: DailyRoundsViewProps) => {
       {/* Dialog de détails */}
       {selectedRound && (
         <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>
+              <DialogTitle className="text-2xl flex items-center gap-2">
+                <Icon name="ClipboardCheck" className="text-cyan-600" />
                 Détails de la ronde - {format(new Date(selectedRound.round_date), "EEEE d MMMM yyyy", { locale: fr })}
               </DialogTitle>
+              <DialogDescription className="text-base">
+                Consultez les détails complets de cette ronde quotidienne et les réponses de la checklist.
+              </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-sm font-semibold">Technicien</Label>
-                  <p>{selectedRound.technician_name || 'Non renseigné'}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-semibold">Type de ronde</Label>
-                  <p>
-                    <Badge variant="outline">
-                      {roundTypeLabels[selectedRound.round_type]}
-                    </Badge>
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm font-semibold">Heure de début</Label>
-                  <p>
-                    {selectedRound.start_time
-                      ? format(new Date(selectedRound.start_time), "HH:mm", { locale: fr })
-                      : "-"}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm font-semibold">Heure de fin</Label>
-                  <p>
-                    {selectedRound.end_time
-                      ? format(new Date(selectedRound.end_time), "HH:mm", { locale: fr })
-                      : "-"}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm font-semibold">Statut</Label>
-                  <p>
-                    <Badge className={statusColors[selectedRound.status]}>
-                      {statusLabels[selectedRound.status]}
-                    </Badge>
-                  </p>
-                </div>
-              </div>
+            
+            <div className="space-y-6 mt-4">
+              {/* Informations générales */}
+              <Card className="bg-gradient-to-r from-cyan-50 to-blue-50 border-cyan-200">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Icon name="Info" className="text-cyan-600" />
+                    Informations Générales
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Technicien</Label>
+                      <p className="text-base font-medium text-gray-900">{selectedRound.technician_name || 'Non renseigné'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Type de ronde</Label>
+                      <div>
+                        <Badge variant="outline" className="text-sm">
+                          {roundTypeLabels[selectedRound.round_type]}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Statut</Label>
+                      <div>
+                        <Badge className={statusColors[selectedRound.status]}>
+                          {statusLabels[selectedRound.status]}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Heure de début</Label>
+                      <p className="text-base font-medium text-gray-900">
+                        {selectedRound.start_time
+                          ? format(new Date(selectedRound.start_time), "HH:mm", { locale: fr })
+                          : "-"}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Heure de fin</Label>
+                      <p className="text-base font-medium text-gray-900">
+                        {selectedRound.end_time
+                          ? format(new Date(selectedRound.end_time), "HH:mm", { locale: fr })
+                          : "-"}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Durée</Label>
+                      <p className="text-base font-medium text-gray-900">
+                        {selectedRound.start_time && selectedRound.end_time
+                          ? (() => {
+                              const duration = Math.round((new Date(selectedRound.end_time).getTime() - new Date(selectedRound.start_time).getTime()) / (1000 * 60));
+                              return `${Math.floor(duration / 60)}h ${duration % 60}min`;
+                            })()
+                          : "-"}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
+              {/* Notes générales */}
               {selectedRound.notes && (
-                <div>
-                  <Label className="text-sm font-semibold">Notes générales</Label>
-                  <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">
-                    {selectedRound.notes}
-                  </p>
-                </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Icon name="FileText" className="text-blue-600" />
+                      Notes Générales
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-gray-700 bg-gray-50 p-4 rounded-md whitespace-pre-wrap">
+                      {selectedRound.notes}
+                    </p>
+                  </CardContent>
+                </Card>
               )}
 
-              <div>
-                <Label className="text-sm font-semibold mb-2 block">Checklist</Label>
-                {roundResponses.length === 0 ? (
-                  <p className="text-sm text-gray-500">Aucune réponse enregistrée.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {roundResponses.map((response) => (
-                      <Card key={response.id} className="border-l-4 border-l-cyan-600">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between mb-2">
-                            <h4 className="font-semibold">
-                              {response.template?.title || 'Item'}
-                            </h4>
-                            {response.template?.is_required && (
-                              <Badge variant="destructive" className="text-xs">Requis</Badge>
-                            )}
-                          </div>
-                          {response.template?.description && (
-                            <p className="text-sm text-gray-600 mb-3">
-                              {response.template.description}
-                            </p>
-                          )}
-                          <div className="space-y-2">
-                            {response.template?.item_type === 'checkbox' && (
-                              <div className="flex items-center gap-2">
-                                <Icon
-                                  name={response.is_checked ? "CheckCircle2" : "Circle"}
-                                  className={response.is_checked ? "text-green-600" : "text-gray-400"}
-                                />
-                                <span className={response.is_checked ? "text-green-700 font-medium" : "text-gray-500"}>
-                                  {response.is_checked ? "Effectué" : "Non effectué"}
-                                </span>
+              {/* Résumé de la checklist */}
+              {roundResponses.length > 0 && (() => {
+                const requiredItems = roundResponses.filter(r => r.template?.is_required);
+                const completedRequired = requiredItems.filter(r => 
+                  r.is_checked || (r.response_value && r.response_value.trim() !== '')
+                );
+                const completionRate = requiredItems.length > 0 
+                  ? Math.round((completedRequired.length / requiredItems.length) * 100)
+                  : 100;
+                
+                return (
+                  <Card className="bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200">
+                    <CardContent className="p-4">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-cyan-600">{roundResponses.length}</p>
+                          <p className="text-xs text-gray-600 uppercase">Total items</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-blue-600">{requiredItems.length}</p>
+                          <p className="text-xs text-gray-600 uppercase">Items requis</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-green-600">{completionRate}%</p>
+                          <p className="text-xs text-gray-600 uppercase">Complétion</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${
+                            completionRate === 100 ? 'bg-green-500' : 
+                            completionRate >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${completionRate}%` }}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+
+              {/* Checklist */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Icon name="ClipboardList" className="text-cyan-600" />
+                    Checklist ({templates.length > 0 ? templates.length : roundResponses.length} items)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {templates.length === 0 && roundResponses.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Icon name="ClipboardX" className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                      <p>Aucune réponse enregistrée pour cette ronde.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {(templates.length > 0 ? templates : roundResponses.map(r => r.template).filter(Boolean))
+                        .map((template) => {
+                          // Trouver la réponse correspondante
+                          const response = roundResponses.find(r => r.template_id === template.id);
+                          
+                          return (
+                          <Card 
+                            key={template.id} 
+                            className={`border-l-4 ${
+                              template.is_required 
+                                ? response && (response.is_checked || (response.response_value && response.response_value.trim() !== ''))
+                                  ? 'border-l-green-500 bg-green-50/30' 
+                                  : 'border-l-red-500 bg-red-50/30'
+                                : 'border-l-cyan-600'
+                            }`}
+                          >
+                            <CardContent className="p-5">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h4 className="text-base font-semibold text-gray-900">
+                                      {template.title || 'Item'}
+                                    </h4>
+                                    {template.is_required && (
+                                      <Badge variant="destructive" className="text-xs">Requis</Badge>
+                                    )}
+                                    {template.item_type && (
+                                      <Badge variant="outline" className="text-xs">
+                                        {template.item_type === 'checkbox' ? 'Case à cocher' :
+                                         template.item_type === 'text' ? 'Texte' :
+                                         template.item_type === 'number' ? 'Nombre' :
+                                         template.item_type === 'select' ? 'Sélection' : ''}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {template.description && (
+                                    <p className="text-sm text-gray-600 mb-3 italic">
+                                      {template.description}
+                                    </p>
+                                  )}
+                                </div>
                               </div>
-                            )}
-                            {(response.template?.item_type === 'text' || response.template?.item_type === 'number' || response.template?.item_type === 'select') && (
-                              <div>
-                                <Label className="text-xs text-gray-500">Réponse</Label>
-                                <p className="text-sm font-medium">{response.response_value || '-'}</p>
+                              
+                              <div className="space-y-3 bg-white p-3 rounded-md border border-gray-200">
+                                {template.item_type === 'checkbox' && (
+                                  <div className="flex items-center gap-3">
+                                    <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                                      response?.is_checked ? 'bg-green-100' : 'bg-gray-100'
+                                    }`}>
+                                      <Icon
+                                        name={response?.is_checked ? "CheckCircle2" : "Circle"}
+                                        className={response?.is_checked ? "text-green-600 h-5 w-5" : "text-gray-400 h-5 w-5"}
+                                      />
+                                    </div>
+                                    <div>
+                                      <span className={`text-sm font-medium ${
+                                        response?.is_checked ? "text-green-700" : "text-gray-500"
+                                      }`}>
+                                        {response?.is_checked ? "✓ Effectué" : "○ Non effectué"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {(template.item_type === 'text' || template.item_type === 'number' || template.item_type === 'select') && (
+                                  <div className="space-y-1">
+                                    <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Réponse</Label>
+                                    <p className="text-sm font-medium text-gray-900 bg-gray-50 p-2 rounded border">
+                                      {response?.response_value || '-'}
+                                    </p>
+                                  </div>
+                                )}
+                                
+                                {response?.observation && (
+                                  <div className="space-y-1 border-t pt-3">
+                                    <Label className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1">
+                                      <Icon name="MessageSquare" className="h-3 w-3" />
+                                      Observation
+                                    </Label>
+                                    <p className="text-sm text-gray-700 bg-blue-50 p-3 rounded-md border border-blue-200 whitespace-pre-wrap">
+                                      {response.observation}
+                                    </p>
+                                  </div>
+                                )}
+                                
+                                {!response && (
+                                  <p className="text-xs text-gray-400 italic">Aucune réponse fournie</p>
+                                )}
                               </div>
-                            )}
-                            {response.observation && (
-                              <div>
-                                <Label className="text-xs text-gray-500">Observation</Label>
-                                <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded-md">
-                                  {response.observation}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </DialogContent>
         </Dialog>

@@ -25,6 +25,9 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState(round.notes || '');
+  const [technicianName, setTechnicianName] = useState(
+    round.technician_name || (user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : '') || ''
+  );
 
   useEffect(() => {
     fetchTemplates();
@@ -103,12 +106,18 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
   };
 
   const handleCompleteRound = async () => {
+    if (!technicianName || technicianName.trim() === '') {
+      showError("Veuillez saisir votre nom avant de terminer la ronde");
+      return;
+    }
+
     try {
       setSaving(true);
       await apiClient.updateDailyRound(round.id, {
         status: 'terminée',
-        end_time: new Date().toISOString(),
+        end_time: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
         notes: notes,
+        technician_name: technicianName.trim(),
       });
       showSuccess("Ronde terminée avec succès");
       onComplete();
@@ -140,6 +149,42 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
 
   return (
     <div className="space-y-6">
+      {/* Champ pour le nom du technicien */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Icon name="User" className="text-cyan-600" />
+            Informations du technicien
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Label htmlFor="technician-name" className="text-sm font-semibold">
+              Nom du technicien <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="technician-name"
+              value={technicianName}
+              onChange={(e) => {
+                setTechnicianName(e.target.value);
+                // Sauvegarder automatiquement le nom
+                apiClient.updateDailyRound(round.id, {
+                  technician_name: e.target.value,
+                }).catch((error: any) => {
+                  console.error("Erreur lors de la sauvegarde du nom:", error);
+                });
+              }}
+              placeholder="Entrez votre nom complet"
+              className="max-w-md"
+              required
+            />
+            <p className="text-xs text-gray-500">
+              Veuillez saisir votre nom complet pour cette ronde
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Indicateur de progression */}
       <Card className="bg-gradient-to-r from-cyan-50 to-blue-50 border-cyan-200">
         <CardContent className="p-4">

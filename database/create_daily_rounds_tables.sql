@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS round_checklist_templates (
 CREATE TABLE IF NOT EXISTS daily_rounds (
     id VARCHAR(36) PRIMARY KEY,
     technician_id VARCHAR(36) NOT NULL,
+    technician_name VARCHAR(255) NULL,
     round_type ENUM('biomedical', 'technicien_polyvalent') NOT NULL,
     round_date DATE NOT NULL,
     start_time TIMESTAMP NULL,

@@ -2117,7 +2117,7 @@ app.get('/api/daily-rounds', authenticateToken, async (req, res) => {
     const [rounds] = await pool.execute(query, params);
     res.json(rounds.map(round => ({
       ...round,
-      technician_name: round.first_name && round.last_name ? `${round.first_name} ${round.last_name}` : null,
+      technician_name: round.technician_name || (round.first_name && round.last_name ? `${round.first_name} ${round.last_name}` : null),
       round_date: round.round_date || null,
       start_time: round.start_time || null,
       end_time: round.end_time || null,
@@ -2137,21 +2137,45 @@ app.get('/api/daily-rounds', authenticateToken, async (req, res) => {
 // Créer une ronde quotidienne
 app.post('/api/daily-rounds', authenticateToken, async (req, res) => {
   try {
-    const { technician_id, round_type, round_date, status, start_time, notes, photo_urls } = req.body;
+    const { technician_id, technician_name, round_type, round_date, status, start_time, notes, photo_urls } = req.body;
+    
+    // Validation des champs requis
+    if (!technician_id || !round_type || !round_date) {
+      return res.status(400).json({ error: 'Les champs technician_id, round_type et round_date sont requis' });
+    }
     
     const id = uuidv4();
     
+    // Formater start_time si fourni
+    let formattedStartTime = null;
+    if (start_time) {
+      // Si c'est déjà au format MySQL, l'utiliser tel quel
+      if (typeof start_time === 'string' && start_time.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+        formattedStartTime = start_time;
+      } else {
+        // Sinon, essayer de parser et formater
+        try {
+          const date = new Date(start_time);
+          formattedStartTime = formatDateTime(date);
+        } catch (e) {
+          console.error('Erreur de formatage de start_time:', e);
+          formattedStartTime = null;
+        }
+      }
+    }
+    
     await pool.execute(
       `INSERT INTO daily_rounds (
-        id, technician_id, round_type, round_date, status, start_time, notes, photo_urls
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, technician_id, technician_name, round_type, round_date, status, start_time, notes, photo_urls
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         technician_id,
+        technician_name || null,
         round_type,
         round_date,
         status || 'en_cours',
-        start_time || null,
+        formattedStartTime,
         notes || null,
         JSON.stringify(photo_urls || [])
       ]
@@ -2164,7 +2188,7 @@ app.post('/api/daily-rounds', authenticateToken, async (req, res) => {
 
     res.json({
       ...newRound[0],
-      technician_name: newRound[0].first_name && newRound[0].last_name ? `${newRound[0].first_name} ${newRound[0].last_name}` : null,
+      technician_name: newRound[0].technician_name || (newRound[0].first_name && newRound[0].last_name ? `${newRound[0].first_name} ${newRound[0].last_name}` : null),
       photo_urls: safeJsonParse(newRound[0].photo_urls, []),
     });
   } catch (error) {
@@ -2180,7 +2204,7 @@ app.post('/api/daily-rounds', authenticateToken, async (req, res) => {
 app.put('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, end_time, notes, photo_urls } = req.body;
+    const { status, end_time, notes, photo_urls, technician_name } = req.body;
     
     const updates = [];
     const values = [];
@@ -2188,6 +2212,7 @@ app.put('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
     if (status !== undefined) { updates.push('status = ?'); values.push(status); }
     if (end_time !== undefined) { updates.push('end_time = ?'); values.push(end_time); }
     if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
+    if (technician_name !== undefined) { updates.push('technician_name = ?'); values.push(technician_name); }
     if (photo_urls !== undefined) { updates.push('photo_urls = ?'); values.push(JSON.stringify(photo_urls)); }
     
     if (updates.length === 0) {
@@ -2207,11 +2232,36 @@ app.put('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
 
     res.json({
       ...updatedRound[0],
-      technician_name: updatedRound[0].first_name && updatedRound[0].last_name ? `${updatedRound[0].first_name} ${updatedRound[0].last_name}` : null,
+      technician_name: updatedRound[0].technician_name || (updatedRound[0].first_name && updatedRound[0].last_name ? `${updatedRound[0].first_name} ${updatedRound[0].last_name}` : null),
       photo_urls: safeJsonParse(updatedRound[0].photo_urls, []),
     });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de la ronde:', error);
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Supprimer une ronde quotidienne
+app.delete('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Vérifier que la ronde existe
+    const [existingRound] = await pool.execute(
+      'SELECT * FROM daily_rounds WHERE id = ?',
+      [id]
+    );
+    
+    if (existingRound.length === 0) {
+      return res.status(404).json({ error: 'Ronde non trouvée' });
+    }
+    
+    // Supprimer la ronde (les réponses seront supprimées automatiquement grâce à ON DELETE CASCADE)
+    await pool.execute('DELETE FROM daily_rounds WHERE id = ?', [id]);
+    
+    res.json({ message: 'Ronde supprimée avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression de la ronde:', error);
     res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
   }
 });
@@ -2256,16 +2306,35 @@ app.get('/api/round-checklist-responses', authenticateToken, async (req, res) =>
     }
 
     const [responses] = await pool.execute(
-      `SELECT rcr.*, rct.title as template_title, rct.item_type, rct.is_required
+      `SELECT rcr.*, 
+       rct.id as template_id_full,
+       rct.title as template_title, 
+       rct.description as template_description,
+       rct.item_type, 
+       rct.is_required,
+       rct.item_order,
+       rct.round_type as template_round_type,
+       rct.options as template_options
        FROM round_checklist_responses rcr
        LEFT JOIN round_checklist_templates rct ON rcr.template_id = rct.id
-       WHERE rcr.round_id = ?`,
+       WHERE rcr.round_id = ?
+       ORDER BY rct.item_order ASC`,
       [round_id]
     );
 
     res.json(responses.map(response => ({
       ...response,
       photo_urls: safeJsonParse(response.photo_urls, []),
+      template: response.template_title ? {
+        id: response.template_id_full,
+        title: response.template_title,
+        description: response.template_description,
+        item_type: response.item_type,
+        is_required: response.is_required === 1 || response.is_required === true,
+        item_order: response.item_order,
+        round_type: response.template_round_type,
+        options: safeJsonParse(response.template_options, null),
+      } : null,
       created_at: response.created_at || null,
       updated_at: response.updated_at || null,
     })));

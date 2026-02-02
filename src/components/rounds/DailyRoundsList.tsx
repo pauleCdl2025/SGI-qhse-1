@@ -9,7 +9,7 @@ import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { LoadingSpinner } from "@/components/shared/Loading";
 import { RoundChecklistForm } from "./RoundChecklistForm";
 import { DashboardCard } from "@/components/shared/DashboardCard";
@@ -71,12 +71,38 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
+      const now = new Date();
+      
+      // Vérifier si une ronde existe déjà pour aujourd'hui
+      const existingRound = rounds.find(r => {
+        const roundDate = new Date(r.round_date);
+        roundDate.setHours(0, 0, 0, 0);
+        return roundDate.getTime() === today.getTime();
+      });
+      
+      if (existingRound) {
+        if (existingRound.status === 'en_cours') {
+          // Continuer la ronde existante
+          handleViewRound(existingRound);
+          return;
+        } else {
+          showError("Une ronde existe déjà pour aujourd'hui avec le statut: " + statusLabels[existingRound.status]);
+          return;
+        }
+      }
+      
+      // Formater les dates au format MySQL
+      const roundDate = format(today, 'yyyy-MM-dd');
+      const startTime = format(now, "yyyy-MM-dd HH:mm:ss");
+      
+      const technicianName = user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : '';
       const round = await apiClient.createDailyRound({
         technician_id: user.id,
+        technician_name: technicianName,
         round_type: roundType,
-        round_date: today.toISOString().split('T')[0],
+        round_date: roundDate,
         status: 'en_cours',
-        start_time: new Date().toISOString(),
+        start_time: startTime,
       });
       showSuccess("Ronde démarrée avec succès");
       setIsDialogOpen(false);
@@ -84,7 +110,9 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
       setIsChecklistDialogOpen(true);
       fetchRounds();
     } catch (error: any) {
-      showError("Erreur lors du démarrage de la ronde: " + error.message);
+      console.error('Erreur complète:', error);
+      const errorMessage = error.response?.data?.error || error.message || "Erreur inconnue";
+      showError("Erreur lors du démarrage de la ronde: " + errorMessage);
     }
   };
 
@@ -96,6 +124,20 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
   const handleRoundComplete = () => {
     setIsChecklistDialogOpen(false);
     fetchRounds();
+  };
+
+  const handleDeleteRound = async (round: DailyRound) => {
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer la ronde du ${format(new Date(round.round_date), "dd/MM/yyyy", { locale: fr })} ? Cette action est irréversible.`)) {
+      return;
+    }
+
+    try {
+      await apiClient.deleteDailyRound(round.id);
+      showSuccess("Ronde supprimée avec succès");
+      fetchRounds();
+    } catch (error: any) {
+      showError("Erreur lors de la suppression: " + error.message);
+    }
   };
 
   const today = new Date();
@@ -348,14 +390,24 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewRound(round)}
-                        >
-                          <Icon name="Eye" className="mr-1 h-4 w-4" />
-                          Voir
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleViewRound(round)}
+                          >
+                            <Icon name="Eye" className="mr-1 h-4 w-4" />
+                            Voir
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteRound(round)}
+                          >
+                            <Icon name="Trash2" className="mr-1 h-4 w-4" />
+                            Supprimer
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -373,6 +425,9 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
               <DialogTitle>
                 Checklist - {format(new Date(selectedRound.round_date), "EEEE d MMMM yyyy", { locale: fr })}
               </DialogTitle>
+              <DialogDescription>
+                Remplissez la checklist de votre ronde quotidienne. Tous les items requis doivent être complétés avant de terminer.
+              </DialogDescription>
             </DialogHeader>
             <RoundChecklistForm
               round={selectedRound}
@@ -382,6 +437,6 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
           </DialogContent>
         </Dialog>
       )}
-    </Card>
+    </div>
   );
 };
