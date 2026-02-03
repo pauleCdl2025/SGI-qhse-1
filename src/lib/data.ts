@@ -70,19 +70,19 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   // Superviseur technicien utilise également le portail superviseur QHSE
   superviseur_technicien: [
     { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['dashboardTechnicien', 'dashboardQHSE', 'qhseTickets', 'biomedical', 'planningTasks', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['dashboardTechnicien', 'qhseTickets', 'biomedical', 'planningTasks', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
   technicien: [
     // Le portail Technicien dédié n'existe plus, le technicien utilise le portail Biomédical
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-    ...findPerms(['dashboardTechnicien', 'dashboardQHSE', 'qhseTickets', 'biomedical', 'myTasks', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['dashboardTechnicien', 'qhseTickets', 'biomedical', 'myTasks', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
   biomedical: [
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
     ...findPerms(['biomedical', 'maintenanceHistory', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
   ],
   dop: [
-    ...findPerms(['dashboardQHSE', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
   // Nouveau rôle employé pour déclarer des incidents et consulter ses informations
   employe: [
