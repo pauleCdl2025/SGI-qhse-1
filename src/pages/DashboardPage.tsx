@@ -37,11 +37,15 @@ import { DashboardCard } from '@/components/shared/DashboardCard';
 import { SecurityIncidentsTable } from '@/components/security/SecurityIncidentsTable';
 import { MaintenanceHistoryTable } from '@/components/maintenance/MaintenanceHistoryTable';
 import { MyTasks } from '@/components/agent/MyTasks';
+import { CameraAccessRequestForm } from '@/components/security/CameraAccessRequestForm';
+import { CameraAccessRequestList } from '@/components/security/CameraAccessRequestList';
+import { useCameraAccessRequests } from '@/hooks/use-camera-access-requests';
 import { TaskPlanning } from '@/components/qhse/TaskPlanning';
 import { PersonalInfo } from '@/components/shared/PersonalInfo';
 import { KpiDashboard } from '@/components/dashboards/KpiDashboard';
 import { GlobalRoomOverview } from '@/components/planning/GlobalRoomOverview'; // Import du nouveau composant
 import { AuditsList, TrainingsList, MedicalWasteList, SterilizationCyclesList, SterilizationRegisterList, RisksList, LaundryTrackingList, QHSEReportsModule } from '@/components/qhse';
+import { AESList } from '@/components/qhse/AESList';
 import { DailyRoundsList, DailyRoundsView } from '@/components/rounds';
 import { 
   filterIncidentsByRole, 
@@ -66,9 +70,10 @@ interface DashboardPageProps {
   updateIncidentStatus: (incidentId: string, newStatus: IncidentStatus) => void;
   deleteIncident: (incidentId: string) => void;
   addInterventionReport: (incidentId: string, report: Omit<InterventionReport, 'report_date' | 'technician_name'>) => void;
-  assignTicket: (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string) => void;
+  assignTicket: (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string, prestataire?: string) => void;
   unassignTicket: (incidentId: string) => void;
   planIntervention: (intervention: Omit<Incident, 'id' | 'date_creation' | 'reported_by' | 'statut' | 'photo_urls'>) => void;
+  updatePrestataire?: (incidentId: string, prestataire: string) => Promise<void>;
   visitors: Visitor[];
   addVisitor: (visitor: Omit<Visitor, 'id' | 'entry_time' | 'registered_by'>) => void;
   signOutVisitor: (visitorId: string) => void;
@@ -162,7 +167,7 @@ const TechnicianDashboard = ({ incidents, allIncidents, updateIncidentStatus, ad
     );
 };
 
-const QHSEDashboard = ({ incidents, updateIncidentStatus, assignTicket, unassignTicket, planIntervention, user, users, createAndAssignTicket }: any) => {
+const QHSEDashboard = ({ incidents, updateIncidentStatus, assignTicket, unassignTicket, planIntervention, user, users, createAndAssignTicket, updatePrestataire }: any) => {
   // Seul le superviseur QHSE peut planifier des interventions
   const canPlanIntervention = user.role === 'superviseur_qhse' || user.role === 'superadmin';
   
@@ -171,7 +176,7 @@ const QHSEDashboard = ({ incidents, updateIncidentStatus, assignTicket, unassign
       <h2 className="text-2xl font-bold text-gray-800 flex items-center">
         <Icon name="UserCog" className="text-cyan-600 mr-2" />Dashboard Superviseur QHSE
       </h2>
-      <QhseTicketsTable incidents={incidents} onUpdateStatus={updateIncidentStatus} onAssignTicket={assignTicket} onUnassignTicket={unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={users} currentUserRole={user.role} />
+      <QhseTicketsTable incidents={incidents} onUpdateStatus={updateIncidentStatus} onAssignTicket={assignTicket} onUnassignTicket={unassignTicket} onUpdatePrestataire={updatePrestataire} onCreateAndAssignTicket={createAndAssignTicket} users={users} currentUserRole={user.role} currentUserId={user.id} currentUser={user} />
       {canPlanIntervention && (
         <PlanInterventionForm onPlanIntervention={planIntervention} currentUser={user} users={users} />
       )}
@@ -313,6 +318,7 @@ const DashboardPage = (props: DashboardPageProps) => {
   const { user, username, onLogout, notifications, markNotificationsAsRead, markNotificationAsRead, onUpdatePassword } = props;
   
   const userTabs = roleConfig[user.role];
+  const { requests: cameraAccessRequests, isLoading: isLoadingCameraRequests, refreshRequests: refreshCameraRequests } = useCameraAccessRequests();
   
   // Déterminer le portail par défaut selon le rôle
   const getDefaultPortal = () => {
@@ -649,20 +655,23 @@ const DashboardPage = (props: DashboardPageProps) => {
       case 'dashboardTechnicien':
         return <TechnicianDashboard incidents={props.incidents} allIncidents={props.incidents} updateIncidentStatus={props.updateIncidentStatus} addInterventionReport={props.addInterventionReport} username={username} />;
       case 'dashboardQHSE':
-        return <QHSEDashboard incidents={props.incidents} updateIncidentStatus={props.updateIncidentStatus} assignTicket={props.assignTicket} unassignTicket={props.unassignTicket} planIntervention={props.planIntervention} user={user} users={props.users} createAndAssignTicket={createAndAssignTicket} />;
+        return <QHSEDashboard incidents={props.incidents} updateIncidentStatus={props.updateIncidentStatus} assignTicket={props.assignTicket} unassignTicket={props.unassignTicket} planIntervention={props.planIntervention} user={user} users={props.users} createAndAssignTicket={createAndAssignTicket} updatePrestataire={props.updatePrestataire} />;
       case 'qhseTickets':
         // Le technicien polyvalent ne voit que les tickets qui lui sont assignés
         if (user.role === 'technicien_polyvalent') {
           const filteredIncidents = props.incidents.filter(i => i.assigned_to === user.id);
-          return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} />;
+          return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onUpdatePrestataire={props.updatePrestataire} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} currentUserId={user.id} currentUser={user} />;
         }
-        const serviceFilter = user.role === 'superviseur_agent_securite' ? 'securite' :
+        // Le superviseur QHSE voit tous les tickets (sauf biomedical)
+        // Les autres superviseurs voient uniquement leur service
+        const serviceFilter = user.role === 'superviseur_qhse' ? 'all' :
+                              user.role === 'superviseur_agent_securite' ? 'securite' :
                               user.role === 'superviseur_agent_entretien' ? 'entretien' :
                               user.role === 'superviseur_technicien' ? 'technique' : 'all';
         const filteredIncidents = serviceFilter === 'all'
           ? props.incidents.filter(i => i.service !== 'biomedical')
           : props.incidents.filter(i => i.service === serviceFilter);
-        return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} />;
+        return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} currentUserId={user.id} currentUser={user} />;
       case 'reportIncident':
         return user.role === 'agent_securite' || user.role === 'superviseur_agent_securite' ? <ReportSecurityIncidentForm onAddIncident={props.addIncident} /> : <ReportProblemForm onAddIncident={props.addIncident} />;
       case 'reportSecurityIncident':
@@ -729,6 +738,15 @@ const DashboardPage = (props: DashboardPageProps) => {
         return <UserManagement currentUserRole={user.role} users={props.users} addUser={props.addUser} deleteUser={props.deleteUser} updateUserPermissions={props.updateUserPermissions} />;
       case 'securityIncidents':
         return <SecurityIncidentsTable incidents={props.incidents.filter(i => i.service === 'securite')} allIncidents={props.incidents} />;
+      case 'cameraAccessRequest':
+        return (
+          <div className="space-y-6">
+            <CameraAccessRequestForm user={user} onRequestSubmitted={refreshCameraRequests} />
+            <CameraAccessRequestList requests={cameraAccessRequests} isLoading={isLoadingCameraRequests} currentUserId={user.id} />
+          </div>
+        );
+      case 'cameraAccessRequestsList':
+        return <CameraAccessRequestList requests={cameraAccessRequests} isLoading={isLoadingCameraRequests} currentUserId={user.id} />;
       case 'maintenanceHistory':
         const completedMaintenance = props.incidents.filter(i => i.service === 'entretien' && (i.statut === 'resolu' || i.statut === 'traite'));
         return <MaintenanceHistoryTable interventions={completedMaintenance} allIncidents={props.incidents} />;
@@ -736,7 +754,10 @@ const DashboardPage = (props: DashboardPageProps) => {
         const myTasks = props.plannedTasks.filter(task => task.assigned_to === props.user.id); // Filter by user ID
         return <MyTasks tasks={myTasks} users={props.users} onUpdateStatus={props.updatePlannedTaskStatus} />;
       case 'planningTasks':
-        const tasksForSupervisor = user.role === 'superviseur_agent_securite' ? props.plannedTasks.filter(t => props.users[Object.keys(props.users).find(key => props.users[key].id === t.assigned_to)!]?.role === 'agent_securite') :
+        // Le superviseur QHSE voit toutes les tâches (il est responsable de tous les agents)
+        // Les autres superviseurs voient uniquement les tâches de leurs agents
+        const tasksForSupervisor = user.role === 'superviseur_qhse' ? props.plannedTasks :
+                                   user.role === 'superviseur_agent_securite' ? props.plannedTasks.filter(t => props.users[Object.keys(props.users).find(key => props.users[key].id === t.assigned_to)!]?.role === 'agent_securite') :
                                    user.role === 'superviseur_agent_entretien' ? props.plannedTasks.filter(t => props.users[Object.keys(props.users).find(key => props.users[key].id === t.assigned_to)!]?.role === 'agent_entretien') :
                                    user.role === 'superviseur_technicien' ? props.plannedTasks.filter(t => props.users[Object.keys(props.users).find(key => props.users[key].id === t.assigned_to)!]?.role === 'technicien') :
                                    user.role === 'technicien_polyvalent' ? props.plannedTasks.filter(t => t.assigned_to === user.id || t.created_by === user.id) :
@@ -807,6 +828,8 @@ const DashboardPage = (props: DashboardPageProps) => {
         return <LaundryTrackingList currentUser={user} />;
       case 'qhseReports':
         return <QHSEReportsModule />;
+      case 'qhseAES':
+        return <AESList currentUserId={user.id} />;
       case 'dailyRoundsBiomedical':
         return <DailyRoundsList user={user} roundType="biomedical" />;
       case 'dailyRoundsPolyvalent':

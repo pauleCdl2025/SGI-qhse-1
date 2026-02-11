@@ -14,6 +14,7 @@ import { LoadingSpinner } from "@/components/shared/Loading";
 import { RoundChecklistForm } from "./RoundChecklistForm";
 import { DashboardCard } from "@/components/shared/DashboardCard";
 import { exportToExcel } from "@/utils/excelExport";
+import { generateDailyRoundsPDF } from "@/utils/dailyRoundsPdfGenerator";
 
 const statusLabels: Record<RoundStatus, string> = {
   en_cours: "En cours",
@@ -222,6 +223,15 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
     }
   };
 
+  const handleExportPDF = async () => {
+    try {
+      await generateDailyRoundsPDF(rounds, roundType, user);
+      showSuccess('Export PDF réussi !');
+    } catch (error: any) {
+      showError('Erreur lors de l\'export PDF: ' + error.message);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner />;
   }
@@ -242,6 +252,14 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
             >
               <Icon name="FileSpreadsheet" className="mr-2 h-4 w-4" />
               Export Excel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportPDF}
+              disabled={rounds.length === 0}
+            >
+              <Icon name="FileText" className="mr-2 h-4 w-4" />
+              Export PDF
             </Button>
             {!todayRound && (
               <Button

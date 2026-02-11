@@ -33,7 +33,8 @@ const getSupervisedAgents = (supervisorRole: UserRole, users: Users): string[] =
       });
       break;
     case 'superviseur_qhse':
-      // Le superviseur QHSE supervise tous les agents (sécurité, entretien, technicien)
+      // Le superviseur QHSE est le responsable des agents de sécurité, entretien et techniciens
+      // Il supervise tous ces agents
       Object.values(users).forEach(user => {
         if (['agent_securite', 'agent_entretien', 'technicien'].includes(user.role)) {
           agentIds.push(user.id);

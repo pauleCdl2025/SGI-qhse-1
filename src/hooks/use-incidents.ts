@@ -56,6 +56,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
           photo_urls: Array.isArray(item.photo_urls) ? item.photo_urls : (item.photo_urls ? JSON.parse(item.photo_urls) : []),
             assigned_to: item.assigned_to,
             assigned_to_name: item.assigned_to_name || undefined,
+            prestataire: item.prestataire || undefined,
             deadline: item.deadline ? new Date(item.deadline) : undefined,
             report: item.report ? (typeof item.report === 'string' ? JSON.parse(item.report) : item.report) : undefined,
           };
@@ -245,15 +246,15 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
     }
   };
 
-  const assignTicket = async (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string) => {
+  const assignTicket = async (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string, prestataire?: string) => {
     if (!currentUser) {
       showError("Vous devez être connecté pour assigner un ticket.");
       return;
     }
 
-    // Seul le superviseur QHSE peut assigner des tickets
-    if (currentUser.details.role !== 'superviseur_qhse' && currentUser.details.role !== 'superadmin') {
-      showError("Seul le superviseur QHSE peut assigner des tickets.");
+    // Seul le superviseur QHSE et l'assistante QHSE peuvent assigner des tickets
+    if (currentUser.details.role !== 'superviseur_qhse' && currentUser.details.role !== 'assistante_qhse' && currentUser.details.role !== 'superadmin') {
+      showError("Seul le superviseur QHSE ou l'assistante QHSE peut assigner des tickets.");
       return;
     }
 
@@ -261,13 +262,14 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
       await apiClient.updateIncident(incidentId, {
         assigned_to: assignedTo,
         assigned_to_name: assigneeName,
+        prestataire: prestataire || null,
         priorite: priority,
         deadline: deadline.toISOString(),
         statut: 'attente'
       });
 
       const assignedUserName = assigneeName || users[Object.keys(users).find(key => users[key].id === assignedTo)!]?.name || 'un agent';
-      showSuccess(`Ticket assigné à ${assignedUserName}.`);
+      showSuccess(`Ticket assigné à ${assignedUserName}${prestataire ? ` (Prestataire: ${prestataire})` : ''}.`);
       setIncidents(prev =>
         prev.map(incident =>
           incident.id === incidentId
@@ -275,6 +277,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
                 ...incident,
                 assigned_to: assignedTo,
                 assigned_to_name: assigneeName,
+                prestataire: prestataire,
                 priorite: priority,
                 deadline
               }
@@ -413,6 +416,92 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
     }
   };
 
+  const updatePrestataire = async (incidentId: string, prestataire: string) => {
+    if (!currentUser) {
+      showError("Vous devez être connecté pour modifier le prestataire.");
+      return;
+    }
+
+    // Vérifier que le ticket est assigné à l'utilisateur actuel
+    const incident = incidents.find(i => i.id === incidentId);
+    if (!incident) {
+      showError("Ticket introuvable.");
+      return;
+    }
+
+    // Seul le technicien polyvalent peut modifier le prestataire de ses propres tickets
+    if (currentUser.details.role !== 'technicien_polyvalent') {
+      showError("Seul le technicien polyvalent peut modifier le prestataire.");
+      return;
+    }
+
+    if (incident.assigned_to !== currentUser.details.id) {
+      showError("Vous ne pouvez modifier le prestataire que pour les tickets qui vous sont assignés.");
+      return;
+    }
+
+    try {
+      await apiClient.updateIncident(incidentId, {
+        prestataire: prestataire
+      });
+
+      // Recharger les incidents depuis le backend pour s'assurer que la mise à jour est bien sauvegardée
+      const updatedIncidents = await apiClient.getIncidents();
+      const formattedIncidents: Incident[] = updatedIncidents.map((item: any) => {
+        let rawPriorite = item.priorite;
+        if (rawPriorite != null && rawPriorite !== undefined) {
+          if (Buffer.isBuffer(rawPriorite)) {
+            rawPriorite = rawPriorite.toString('utf8');
+          } else if (typeof rawPriorite === 'object' && rawPriorite.toString) {
+            rawPriorite = rawPriorite.toString();
+          } else {
+            rawPriorite = String(rawPriorite);
+          }
+        }
+        let normalizedPriorite = 'moyenne';
+        if (rawPriorite && typeof rawPriorite === 'string') {
+          normalizedPriorite = rawPriorite.trim().toLowerCase();
+        }
+        const validPriorities = ['faible', 'moyenne', 'haute', 'critique'];
+        const priorite = validPriorities.includes(normalizedPriorite) ? normalizedPriorite : 'moyenne';
+        
+        return {
+          id: item.id,
+          type: item.type,
+          description: item.description,
+          date_creation: new Date(item.date_creation),
+          reported_by: item.reported_by,
+          statut: item.statut,
+          priorite: priorite as IncidentPriority,
+          service: item.service,
+          lieu: item.lieu,
+          photo_urls: (() => {
+            try {
+              const parsed = typeof item.photo_urls === 'string' ? JSON.parse(item.photo_urls) : item.photo_urls;
+              if (Array.isArray(parsed)) return parsed;
+              if (typeof parsed === 'string' && parsed.trim() !== '') return [parsed];
+              return [];
+            } catch {
+              return [];
+            }
+          })(),
+          assigned_to: item.assigned_to || undefined,
+          assigned_to_name: item.assigned_to_name || undefined,
+          prestataire: item.prestataire || undefined,
+          deadline: item.deadline ? new Date(item.deadline) : undefined,
+          report: item.report ? (typeof item.report === 'string' ? JSON.parse(item.report) : item.report) : undefined,
+        };
+      });
+      
+      setIncidents(formattedIncidents);
+      showSuccess(`Prestataire mis à jour avec succès.`);
+    } catch (error: any) {
+      console.error("Error updating prestataire:", error.message);
+      showError("Erreur lors de la mise à jour du prestataire.");
+      throw error;
+    }
+  };
+
   return {
     incidents,
     setIncidents,
@@ -423,5 +512,6 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
     assignTicket,
     unassignTicket,
     planIntervention,
+    updatePrestataire,
   };
 };

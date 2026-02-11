@@ -3,19 +3,15 @@ import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/Icon';
-import { Incident, Users, IncidentPriority, IncidentStatus } from '@/types';
+import { Incident, Users, IncidentPriority, IncidentStatus, User } from '@/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { TicketComments } from '@/components/qhse/TicketComments';
 
 interface IncidentDetailsPageProps {
   incidents: Incident[];
   users: Users;
+  currentUser?: User | null;
 }
 
 const priorityClasses: Record<IncidentPriority, string> = {
@@ -33,7 +29,7 @@ const statusClasses: Record<IncidentStatus, string> = {
   attente: "bg-gray-500",
 };
 
-const IncidentDetailsPage = ({ incidents, users }: IncidentDetailsPageProps) => {
+const IncidentDetailsPage = ({ incidents, users, currentUser }: IncidentDetailsPageProps) => {
   const { id } = useParams<{ id: string }>();
   const incident = incidents.find(i => i.id === id);
 
@@ -166,27 +162,42 @@ const IncidentDetailsPage = ({ incidents, users }: IncidentDetailsPageProps) => 
                   </div>
                 )}
 
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="historique">
-                    <AccordionTrigger className="text-sm font-semibold text-cyan-700">
-                      Historique & suivi des actions
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <ul className="space-y-3 text-sm text-gray-600">
-                        <li className="flex items-start gap-2">
-                          <Icon name="CheckCircle2" className="h-5 w-5 text-green-500 mt-0.5" />
-                          Ticket créé le {format(incident.date_creation, "dd/MM/yyyy à HH:mm", { locale: fr })} par {reportedByUserName}.
-                        </li>
-                        {incident.deadline && (
-                          <li className="flex items-start gap-2">
-                            <Icon name="CalendarClock" className="h-5 w-5 text-orange-500 mt-0.5" />
-                            Échéance fixée au {format(incident.deadline, "dd/MM/yyyy à HH:mm", { locale: fr })}.
-                          </li>
-                        )}
-                      </ul>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
+                {/* Historique basique */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
+                  <div className="text-sm font-semibold text-cyan-700 mb-3">Historique des actions</div>
+                  <ul className="space-y-3 text-sm text-gray-600">
+                    <li className="flex items-start gap-2">
+                      <Icon name="CheckCircle2" className="h-5 w-5 text-green-500 mt-0.5" />
+                      Ticket créé le {format(incident.date_creation, "dd/MM/yyyy à HH:mm", { locale: fr })} par {reportedByUserName}.
+                    </li>
+                    {incident.deadline && (
+                      <li className="flex items-start gap-2">
+                        <Icon name="CalendarClock" className="h-5 w-5 text-orange-500 mt-0.5" />
+                        Échéance fixée au {format(incident.deadline, "dd/MM/yyyy à HH:mm", { locale: fr })}.
+                      </li>
+                    )}
+                    {incident.assigned_to && (
+                      <li className="flex items-start gap-2">
+                        <Icon name="UserCheck" className="h-5 w-5 text-blue-500 mt-0.5" />
+                        Ticket assigné à {assignedUserName} le {format(incident.date_creation, "dd/MM/yyyy à HH:mm", { locale: fr })}.
+                      </li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* Section Commentaires */}
+                {currentUser && (
+                  <div className="mt-4">
+                    <TicketComments
+                      incident={incident}
+                      currentUser={currentUser}
+                      onCommentAdded={() => {
+                        // Rafraîchir la page pour mettre à jour les commentaires
+                        window.location.reload();
+                      }}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -292,6 +303,15 @@ const IncidentDetailsPage = ({ incidents, users }: IncidentDetailsPageProps) => 
                     )}
                   </span>
                 </div>
+                {incident.prestataire && (
+                  <div className="flex flex-col gap-2 bg-white border border-slate-200 rounded-lg p-4">
+                    <span className="text-xs uppercase tracking-wider text-gray-500">Prestataire</span>
+                    <span className="font-semibold text-gray-800 inline-flex items-center gap-2">
+                      <Icon name="Building2" className="h-4 w-4 text-purple-600" />
+                      {incident.prestataire}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

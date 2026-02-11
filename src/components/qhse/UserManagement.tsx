@@ -22,6 +22,7 @@ const roleDisplay: Record<User['role'], string> = {
     agent_entretien: "Agent Entretien",
     technicien: "Technicien",
     superviseur_qhse: "Superviseur QHSE",
+    assistante_qhse: "Assistante QHSE",
     superadmin: "Super Admin",
     secretaire: "Secrétaire",
     superviseur_agent_securite: "Superviseur Sécurité",
@@ -35,6 +36,7 @@ const roleDisplay: Record<User['role'], string> = {
 const roleColors: Record<User['role'], string> = {
     superadmin: "bg-amber-100 text-amber-700 border-amber-300",
     superviseur_qhse: "bg-cyan-100 text-cyan-700 border-cyan-300",
+    assistante_qhse: "bg-cyan-50 text-cyan-700 border-cyan-200",
     superviseur_agent_securite: "bg-blue-100 text-blue-700 border-blue-300",
     superviseur_agent_entretien: "bg-green-100 text-green-700 border-green-300",
     superviseur_technicien: "bg-orange-100 text-orange-700 border-orange-300",
@@ -78,6 +80,8 @@ export const UserManagement = ({ currentUserRole, users, addUser, deleteUser, up
       return userToManage.role !== 'superadmin';
     }
     if (currentUserRole === 'superviseur_qhse') {
+      // Le superviseur QHSE peut gérer tous les utilisateurs sauf superadmin et superviseur_qhse
+      // Il est responsable des agents de sécurité, entretien et techniciens
       return (
         userToManage.role !== 'superadmin' &&
         userToManage.role !== 'superviseur_qhse'

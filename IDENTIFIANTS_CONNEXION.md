@@ -20,14 +20,7 @@
 
 ---
 
-### 🏢 2bis. Direction Opérationnelle (DOP)
-- **Nom d'utilisateur** : `dop`
-- **Email** : `dop@hospital.com`
-- **Mot de passe** : `dop123`
-- **Rôle** : Direction Opérationnelle
-- **Accès** : Validation des documents GED, suivi des indicateurs clés
 
----
 
 ### 📝 3. Secrétaire
 - **Nom d'utilisateur** : `secretaire`
@@ -92,21 +85,17 @@
 
 ---
 
-### 🛠️ 10. Superviseur Technicien
-- **Nom d'utilisateur** : `superviseur_technicien`
-- **Email** : `superviseur.technicien@hospital.com`
-- **Mot de passe** : `superviseur_technicien123`
-- **Rôle** : Superviseur Technicien
-- **Accès** : Dashboard technique, gestion interventions, planning tâches, utilisateurs, modules QHSE
+
+
 
 ---
 
-### 🩺 11. Responsable Biomédical
-- **Nom d'utilisateur** : `biomedical`
-- **Email** : `biomedical@hospital.com`
-- **Mot de passe** : `biomedical123`
-- **Rôle** : Biomédical
-- **Accès** : Portail biomédical, parc équipements, maintenance, indicateurs biomédicaux
+### 🔧 12. Technicien Polyvalent
+- **Nom d'utilisateur** : `technicien_polyvalent`
+- **Email** : `technicien.polyvalent@hospital.com`
+- **Mot de passe** : `technicien123`
+- **Rôle** : Technicien Polyvalent
+- **Accès** : Portail technicien polyvalent, maintenance polyvalente, rondes quotidiennes, mes tâches, modules QHSE
 
 ---
 
@@ -126,6 +115,7 @@
 | Technicien | `technicien` | `technicien123` |
 | Superviseur Technicien | `superviseur_technicien` | `superviseur_technicien123` |
 | Responsable Biomédical | `biomedical` | `biomedical123` |
+| Technicien Polyvalent | `technicien_polyvalent` | `technicien123` |
 
 ---
 
@@ -144,6 +134,7 @@ Ou individuellement :
 - `database/create_secretaire_user.sql` - Secrétaire
 - `database/create_agent_securite_user.sql` - Agent Sécurité
 - `database/create_superviseur_securite_user.sql` - Superviseur Sécurité
+- `database/create_technicien_polyvalent_user.sql` - Technicien Polyvalent
 
 ---
 

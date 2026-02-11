@@ -13,8 +13,9 @@ interface AssignTicketDialogProps {
   allIncidents: Incident[]; // Liste complète des incidents pour calculer le numéro séquentiel
   isOpen: boolean;
   onClose: () => void;
-  onAssign: (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date) => void;
+  onAssign: (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string, prestataire?: string) => void;
   users: Users; // Pass users prop
+  currentUserRole?: UserRole; // Rôle de l'utilisateur qui assigne
 }
 
 // Fonction pour obtenir le préfixe du service
@@ -57,11 +58,12 @@ const formatTicketNumber = (incident: Incident, allIncidents: Incident[] = []): 
   return `${prefix}-${index}`;
 };
 
-export const AssignTicketDialog = ({ incident, allIncidents, isOpen, onClose, onAssign, users }: AssignTicketDialogProps) => {
+export const AssignTicketDialog = ({ incident, allIncidents, isOpen, onClose, onAssign, users, currentUserRole }: AssignTicketDialogProps) => {
   const [assignedTo, setAssignedTo] = useState('');
   const [priority, setPriority] = useState<IncidentPriority>(incident.priorite);
   const [deadlineHours, setDeadlineHours] = useState('24');
   const [maintenanceAssignee, setMaintenanceAssignee] = useState<string>('');
+  const [prestataire, setPrestataire] = useState<string>('');
 
   const formatUserName = (userId: string) => {
     const entry = Object.values(users).find(user => user.id === userId);
@@ -75,26 +77,63 @@ export const AssignTicketDialog = ({ incident, allIncidents, isOpen, onClose, on
   const maintenanceAgents = ['Stone', 'Paul', 'Edouard', 'Marina', 'Anne', 'Prisca', 'Jacque', 'Dorel', 'Christelle'];
 
   const agents = useMemo(() => {
+    // Le Superviseur QHSE et l'assistante QHSE peuvent assigner uniquement aux agents de sécurité
+    // Ils ne peuvent plus assigner aux agents d'entretien
+    if (currentUserRole === 'superviseur_qhse' || currentUserRole === 'assistante_qhse') {
+      if (incident.service === 'securite') {
+        // Pour les tickets de sécurité : montrer les agents de sécurité
+        return Object.entries(users)
+          .filter(([, user]) => user.role === 'agent_securite')
+          .map(([username, user]) => ({
+            key: username,
+            id: user.id,
+            displayName: formatUserName(user.id),
+            role: user.role
+          }));
+      } else if (incident.service === 'entretien') {
+        // Pour les tickets d'entretien : ne pas permettre l'assignation (liste vide)
+        return [];
+      } else if (incident.service === 'technique') {
+        // Pour les tickets techniques : montrer les techniciens polyvalents
+        return Object.entries(users)
+          .filter(([, user]) => user.role === 'technicien_polyvalent' || user.role === 'technicien')
+          .map(([username, user]) => ({
+            key: username,
+            id: user.id,
+            displayName: formatUserName(user.id),
+            role: user.role
+          }));
+      }
+    }
+    
+    // Pour les autres rôles, logique normale
     const roleMap: Record<Incident['service'], UserRole> = {
       'securite': 'agent_securite',
       'entretien': 'agent_entretien',
-      'technique': 'technicien'
+      'technique': 'technicien_polyvalent' // Modifié pour inclure technicien_polyvalent
     };
     const targetRole = roleMap[incident.service];
     return Object.entries(users)
-      .filter(([, user]) => user.role === targetRole)
+      .filter(([, user]) => user.role === targetRole || (targetRole === 'technicien_polyvalent' && user.role === 'technicien'))
       .map(([username, user]) => ({
         key: username,
         id: user.id,
-        displayName: formatUserName(user.id)
+        displayName: formatUserName(user.id),
+        role: user.role
       }));
-  }, [incident.service, users]);
+  }, [incident.service, users, currentUserRole]);
+
+  const isTechnicienPolyvalent = useMemo(() => {
+    const assignedUser = Object.values(users).find(user => user.id === assignedTo);
+    return assignedUser?.role === 'technicien_polyvalent';
+  }, [assignedTo, users]);
 
   useEffect(() => {
     setAssignedTo('');
     setPriority(incident.priorite);
     setDeadlineHours('24');
     setMaintenanceAssignee('');
+    setPrestataire('');
   }, [incident, isOpen]);
 
   useEffect(() => {
@@ -108,8 +147,17 @@ export const AssignTicketDialog = ({ incident, allIncidents, isOpen, onClose, on
       showError("Veuillez remplir tous les champs.");
       return;
     }
+    // Le Superviseur QHSE et l'assistante QHSE ne peuvent plus assigner aux agents d'entretien
+    if (incident.service === 'entretien' && (currentUserRole === 'superviseur_qhse' || currentUserRole === 'assistante_qhse')) {
+      showError("Vous ne pouvez plus assigner des tickets d'entretien.");
+      return;
+    }
     if (incident.service === 'entretien' && !maintenanceAssignee) {
       showError("Veuillez sélectionner le nom de l'agent d'entretien.");
+      return;
+    }
+    if (isTechnicienPolyvalent && !prestataire.trim()) {
+      showError("Veuillez saisir le nom du prestataire qui va intervenir.");
       return;
     }
     const deadline = new Date(Date.now() + parseInt(deadlineHours, 10) * 60 * 60 * 1000);
@@ -122,7 +170,7 @@ export const AssignTicketDialog = ({ incident, allIncidents, isOpen, onClose, on
         ? [assignedUser.first_name, assignedUser.last_name].filter(Boolean).join(' ') || assignedUser.name || assignedUser.username
         : undefined;
     
-    onAssign(incident.id, assignedTo, priority, deadline, assigneeName);
+    onAssign(incident.id, assignedTo, priority, deadline, assigneeName, isTechnicienPolyvalent ? prestataire.trim() : undefined);
   };
 
   return (
@@ -161,6 +209,21 @@ export const AssignTicketDialog = ({ incident, allIncidents, isOpen, onClose, on
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          {isTechnicienPolyvalent && (
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="prestataire" className="text-right">
+                Prestataire <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="prestataire"
+                value={prestataire}
+                onChange={(e) => setPrestataire(e.target.value)}
+                placeholder="Nom du prestataire qui va intervenir"
+                className="col-span-3"
+                required
+              />
             </div>
           )}
           <div className="grid grid-cols-4 items-center gap-4">

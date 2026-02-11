@@ -1,4 +1,20 @@
-export type UserRole = 'agent_securite' | 'agent_entretien' | 'technicien' | 'superviseur_qhse' | 'superadmin' | 'secretaire' | 'superviseur_agent_securite' | 'superviseur_agent_entretien' | 'superviseur_technicien' | 'medecin' | 'biomedical' | 'dop' | 'employe' | 'buandiere' | 'technicien_polyvalent';
+export type UserRole =
+  | 'agent_securite'
+  | 'agent_entretien'
+  | 'technicien'
+  | 'superviseur_qhse'
+  | 'assistante_qhse'
+  | 'superadmin'
+  | 'secretaire'
+  | 'superviseur_agent_securite'
+  | 'superviseur_agent_entretien'
+  | 'superviseur_technicien'
+  | 'medecin'
+  | 'biomedical'
+  | 'dop'
+  | 'employe'
+  | 'buandiere'
+  | 'technicien_polyvalent';
 
 export type Civility = 'M.' | 'Mme' | 'Mlle';
 
@@ -36,6 +52,16 @@ export interface InterventionReport {
   technician_name: string;
 }
 
+export interface IncidentComment {
+  id: string;
+  incident_id: string;
+  user_id: string;
+  user_name: string;
+  comment: string;
+  created_at: Date;
+  updated_at?: Date;
+}
+
 export interface Incident {
   id: string;
   type: IncidentType;
@@ -49,8 +75,10 @@ export interface Incident {
   photo_urls?: string[]; // Storing URLs instead of File objects
   assigned_to?: string; // User ID of the assignee
   assigned_to_name?: string;
+  prestataire?: string; // Nom du prestataire (pour technicien polyvalent)
   deadline?: Date;
   report?: InterventionReport; // Stored as JSONB in DB
+  comments?: IncidentComment[]; // Commentaires/réponses sur le ticket
 }
 
 export interface Visitor {
@@ -585,6 +613,92 @@ export type RoundType = 'biomedical' | 'technicien_polyvalent';
 export type RoundStatus = 'en_cours' | 'terminée' | 'annulée';
 export type ChecklistItemType = 'checkbox' | 'text' | 'number' | 'select';
 
+// Types pour les Accidents d'Exposition au Sang (AES)
+export type AgentStatut = 'Personnel' | 'Stagiaire' | 'Prestataire';
+export type TypeExposition = 'Piqure' | 'Coupure' | 'Projection muqueuse' | 'Contact peau lésée';
+
+export interface AES {
+  id: string;
+  // A. Identification de l'agent exposé
+  agent_nom: string;
+  agent_prenom: string;
+  agent_matricule?: string;
+  agent_fonction?: string;
+  agent_service?: string;
+  agent_telephone?: string;
+  agent_statut: AgentStatut;
+  
+  // B. Informations sur l'accident
+  date_aes: Date;
+  heure_aes: string; // Format HH:mm
+  lieu_precis?: string;
+  type_exposition: TypeExposition;
+  description_circonstances?: string;
+  
+  // C. Matériel ou produit en cause
+  type_dispositif?: string;
+  usage_unique?: boolean;
+  souille_sang?: boolean;
+  dans_sac_dasri?: boolean;
+  
+  // D. Patient source
+  patient_source_identifiee?: boolean;
+  patient_code_identifiant?: string;
+  consentement_prelevement?: boolean;
+  
+  // E. Gestes immédiats
+  lavage_eau_savon?: boolean;
+  desinfection?: boolean;
+  rinçage_muqueuse?: boolean;
+  heure_premiers_soins?: string; // Format HH:mm
+  
+  // F. Prise en charge médicale
+  medecin_referent_aes?: string;
+  examen_vih?: boolean;
+  examen_vhb?: boolean;
+  examen_vhc?: boolean;
+  traitement_arv_initie?: boolean;
+  date_debut_traitement?: Date;
+  
+  // G. Résultats biologiques
+  resultat_agent_vih?: boolean;
+  resultat_agent_vhb?: boolean;
+  resultat_agent_vhc?: boolean;
+  resultat_patient_vih?: boolean;
+  resultat_patient_vhb?: boolean;
+  resultat_patient_vhc?: boolean;
+  conduite_tenir?: string;
+  
+  // H. Suivi et accompagnement
+  orientation_infectiologue?: boolean;
+  orientation_psychologue?: boolean;
+  dates_suivi_prevues?: string; // JSON array ou texte
+  
+  // I. Suivi médical
+  suivi_m1_date?: Date;
+  suivi_m1_vih?: boolean;
+  suivi_m1_vhb?: boolean;
+  suivi_m1_vhc?: boolean;
+  suivi_m6_date?: Date;
+  suivi_m6_vih?: boolean;
+  suivi_m6_vhb?: boolean;
+  suivi_m6_vhc?: boolean;
+  suivi_m9_date?: Date;
+  suivi_m9_vih?: boolean;
+  suivi_m9_vhb?: boolean;
+  suivi_m9_vhc?: boolean;
+  
+  // J. Clôture QHSE
+  dossier_cloture: boolean;
+  date_cloture?: Date;
+  nom_signature_qhse?: string;
+  
+  // Métadonnées
+  created_by: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface RoundChecklistTemplate {
   id: string;
   round_type: RoundType;
@@ -613,6 +727,8 @@ export interface DailyRound {
   updated_at?: Date;
 }
 
+export type EquipmentStatus = 'bon_état' | 'défectueux';
+
 export interface RoundChecklistResponse {
   id: string;
   round_id: string;
@@ -620,6 +736,9 @@ export interface RoundChecklistResponse {
   template?: RoundChecklistTemplate;
   response_value?: string; // Pour les réponses textuelles ou numériques
   is_checked: boolean; // Pour les checkboxes
+  equipment_status?: EquipmentStatus; // État de l'équipement (bon_état / défectueux) - pour les rondes biomédicales
+  equipment_name?: string; // Nom/identification de l'équipement - pour les rondes biomédicales
+  service_name?: string; // Service/location de l'équipement - pour les rondes biomédicales
   observation?: string;
   photo_urls?: string[];
   created_at?: Date;
@@ -628,4 +747,27 @@ export interface RoundChecklistResponse {
 
 export interface DailyRoundWithResponses extends DailyRound {
   responses?: RoundChecklistResponse[];
+}
+
+export type CameraAccessRequestStatus = 'en_attente' | 'approuve' | 'refuse' | 'annule';
+
+export interface CameraAccessRequest {
+  id: string;
+  requester_id: string;
+  requester_name?: string;
+  requester_service?: string;
+  requester_position?: string;
+  request_date: Date;
+  access_reason: string;
+  access_start_date: Date;
+  access_end_date: Date;
+  access_start_time?: string;
+  access_end_time?: string;
+  camera_zones?: string; // Zones/caméras concernées
+  hierarchical_authorization?: string; // Nom du responsable qui autorise
+  hierarchical_authorization_date?: Date;
+  status: CameraAccessRequestStatus;
+  notes?: string;
+  created_at?: Date;
+  updated_at?: Date;
 }

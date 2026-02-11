@@ -5,11 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/Icon";
-import { Incident, IncidentPriority, IncidentStatus, IncidentType, IncidentService, Users, UserRole } from "@/types";
+import { Incident, IncidentPriority, IncidentStatus, IncidentType, IncidentService, Users, UserRole, User } from "@/types";
 import { format } from 'date-fns';
 import { CreateTicketDialog } from './CreateTicketDialog';
 import { AssignTicketDialog } from './AssignTicketDialog';
+import { TicketComments } from './TicketComments';
+import { EditPrestataireDialog } from './EditPrestataireDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 
@@ -79,8 +82,9 @@ type ReporterFilter = UserRole | 'unknown' | 'all';
 interface QhseTicketsTableProps {
   incidents: Incident[];
   onUpdateStatus: (incidentId: string, newStatus: IncidentStatus) => void;
-  onAssignTicket: (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string) => void;
+  onAssignTicket: (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string, prestataire?: string) => void;
   onUnassignTicket: (incidentId: string) => void;
+  onUpdatePrestataire?: (incidentId: string, prestataire: string) => Promise<void>;
   onCreateAndAssignTicket?: (ticket: {
     type: IncidentType;
     description: string;
@@ -90,9 +94,12 @@ interface QhseTicketsTableProps {
     assigneeName?: string;
     priority: IncidentPriority;
     deadline: Date;
+    prestataire?: string;
   }) => void;
   users: Users;
   currentUserRole?: UserRole; // Ajouter le rôle de l'utilisateur actuel
+  currentUserId?: string; // Ajouter l'ID de l'utilisateur actuel
+  currentUser?: User; // Ajouter l'utilisateur actuel pour les commentaires
 }
 
 // Fonction pour obtenir le préfixe du service
@@ -150,14 +157,25 @@ const formatTicketNumber = (incident: Incident, allIncidents: Incident[] = [], u
   return `${prefix}-${roleSuffix ? roleSuffix + '-' : ''}${index}`;
 };
 
-export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, onUnassignTicket, onCreateAndAssignTicket, users, currentUserRole }: QhseTicketsTableProps) => {
+export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, onUnassignTicket, onUpdatePrestataire, onCreateAndAssignTicket, users, currentUserRole, currentUserId, currentUser }: QhseTicketsTableProps) => {
   const [filterRequester, setFilterRequester] = useState<ReporterFilter>('all');
   const [filterStatus, setFilterStatus] = useState<IncidentStatus | 'all'>('all');
   const [filterPriority, setFilterPriority] = useState<IncidentPriority | 'all'>('all');
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [showCommentsDialog, setShowCommentsDialog] = useState(false);
+  const [showPrestataireDialog, setShowPrestataireDialog] = useState(false);
 
-  // Seul le superviseur QHSE peut assigner/désassigner des tickets
-  const canAssignTickets = currentUserRole === 'superviseur_qhse' || currentUserRole === 'superadmin';
+  // Le superviseur QHSE et l'assistante QHSE peuvent assigner/désassigner des tickets
+  const canAssignTickets = currentUserRole === 'superviseur_qhse' || currentUserRole === 'assistante_qhse' || currentUserRole === 'superadmin';
+  
+  // Vérifier si l'utilisateur peut modifier le statut d'un ticket (s'il est assigné à ce ticket)
+  const canUpdateStatus = (incident: Incident) => {
+    if (!currentUserId) return false;
+    // Le superviseur QHSE peut toujours modifier le statut
+    if (canAssignTickets) return true;
+    // L'agent assigné peut modifier le statut de son ticket
+    return incident.assigned_to === currentUserId;
+  };
 
   // Utilisation du hook de recherche amélioré
   const { filteredData: searchedIncidents, searchQuery, setSearchQuery } = useFilterAndSearch(
@@ -187,8 +205,8 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
     });
   }, [searchedIncidents, filterRequester, filterStatus, filterPriority, users]);
 
-  const handleAssign = (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string) => {
-    onAssignTicket(incidentId, assignedTo, priority, deadline, assigneeName);
+  const handleAssign = (incidentId: string, assignedTo: string, priority: IncidentPriority, deadline: Date, assigneeName?: string, prestataire?: string) => {
+    onAssignTicket(incidentId, assignedTo, priority, deadline, assigneeName, prestataire);
     setSelectedIncident(null);
   };
 
@@ -207,7 +225,7 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
           Traitement et Assignation des Tickets
         </CardTitle>
         {canAssignTickets && onCreateAndAssignTicket && (
-          <CreateTicketDialog onCreateTicket={onCreateAndAssignTicket} users={users} />
+          <CreateTicketDialog onCreateTicket={onCreateAndAssignTicket} users={users} currentUserRole={currentUserRole} />
         )}
       </CardHeader>
       <CardContent>
@@ -267,6 +285,7 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
               <TableHead>Priorité</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead>Agent</TableHead>
+              <TableHead>Prestataire</TableHead>
               <TableHead>Délai</TableHead>
               <TableHead>Type d&apos;agent</TableHead>
               <TableHead>Actions</TableHead>
@@ -284,6 +303,33 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
                 <TableCell><Badge className={`${priorityClasses[incident.priorite]} hover:${priorityClasses[incident.priorite]}`}>{incident.priorite}</Badge></TableCell>
                 <TableCell><Badge className={`${statusClasses[incident.statut]} hover:${statusClasses[incident.statut]}`}>{incident.statut}</Badge></TableCell>
                 <TableCell>{incident.assigned_to_name || formatUserName(users, incident.assigned_to)}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    {incident.prestataire ? (
+                      <Badge className="bg-purple-100 text-purple-700 border border-purple-200">
+                        <Icon name="Building2" className="mr-1 h-3 w-3" />
+                        {incident.prestataire}
+                      </Badge>
+                    ) : (
+                      <span className="text-gray-400 text-sm">-</span>
+                    )}
+                    {/* Bouton pour modifier le prestataire (technicien polyvalent uniquement) */}
+                    {currentUserRole === 'technicien_polyvalent' && incident.assigned_to === currentUserId && onUpdatePrestataire && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setSelectedIncident(incident);
+                          setShowPrestataireDialog(true);
+                        }}
+                        className="h-6 px-2 text-xs"
+                        title="Modifier le prestataire"
+                      >
+                        <Icon name="Edit" className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell>{incident.deadline ? format(incident.deadline, 'dd/MM HH:mm') : '-'}</TableCell>
                 <TableCell>
                   <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200">
@@ -291,9 +337,45 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <div className="flex space-x-1">
+                  <div className="flex flex-wrap gap-1">
+                    {/* Bouton pour voir les commentaires (visible pour tous les utilisateurs connectés) */}
+                    {currentUser && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedIncident(incident);
+                          setShowCommentsDialog(true);
+                        }}
+                        className="transition-transform hover:scale-105"
+                      >
+                        <Icon name="MessageSquare" className="mr-1 h-4 w-4" />
+                        Commentaires
+                        {incident.comments && incident.comments.length > 0 && (
+                          <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700">
+                            {incident.comments.length}
+                          </Badge>
+                        )}
+                      </Button>
+                    )}
+                    
+                    {/* Actions pour superviseur QHSE */}
                     {canAssignTickets && (
-                      <Button size="sm" onClick={() => setSelectedIncident(incident)} disabled={incident.statut !== 'nouveau'} className="transition-transform hover:scale-105">
+                      <Button 
+                        size="sm" 
+                        onClick={() => setSelectedIncident(incident)} 
+                        disabled={
+                          incident.statut !== 'nouveau' || 
+                          // Le Superviseur QHSE et l'assistante QHSE ne peuvent plus assigner les tickets d'entretien
+                          (incident.service === 'entretien' && (currentUserRole === 'superviseur_qhse' || currentUserRole === 'assistante_qhse'))
+                        } 
+                        className="transition-transform hover:scale-105"
+                        title={
+                          incident.service === 'entretien' && (currentUserRole === 'superviseur_qhse' || currentUserRole === 'assistante_qhse')
+                            ? "Vous ne pouvez plus assigner des tickets d'entretien"
+                            : undefined
+                        }
+                      >
                         <Icon name="UserCog" className="mr-1 h-4 w-4" /> Assigner
                       </Button>
                     )}
@@ -325,10 +407,41 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
-                    {canAssignTickets && (
-                      <Button size="sm" variant="secondary" onClick={() => onUpdateStatus(incident.id, 'resolu')} disabled={incident.statut !== 'traite'} className="transition-transform hover:scale-105">
-                        <Icon name="CheckCheck" className="mr-1 h-4 w-4" /> Valider
-                      </Button>
+                    
+                    {/* Actions pour mettre à jour le statut (superviseur QHSE ou agent assigné) */}
+                    {canUpdateStatus(incident) && (
+                      <>
+                        <Button 
+                          size="sm" 
+                          className="bg-blue-500 hover:bg-blue-600 transition-transform hover:scale-105"
+                          onClick={() => onUpdateStatus(incident.id, 'cours')}
+                          disabled={incident.statut === 'cours' || incident.statut === 'traite' || incident.statut === 'resolu'}
+                        >
+                          <Icon name="Play" className="mr-1 h-4 w-4" /> Démarrer
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          className="bg-teal-500 hover:bg-teal-600 transition-transform hover:scale-105"
+                          onClick={() => onUpdateStatus(incident.id, 'traite')}
+                          disabled={incident.statut !== 'cours'}
+                        >
+                          <Icon name="Check" className="mr-1 h-4 w-4" /> Traiter
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="secondary" 
+                          onClick={() => onUpdateStatus(incident.id, 'resolu')} 
+                          disabled={incident.statut !== 'traite'} 
+                          className="transition-transform hover:scale-105"
+                        >
+                          <Icon name="CheckCheck" className="mr-1 h-4 w-4" /> Résoudre
+                        </Button>
+                      </>
+                    )}
+                    
+                    {/* Message si aucune action disponible */}
+                    {!canAssignTickets && !canUpdateStatus(incident) && (
+                      <span className="text-xs text-gray-400 italic">Aucune action disponible</span>
                     )}
                   </div>
                 </TableCell>
@@ -349,10 +462,46 @@ export const QhseTicketsTable = ({ incidents, onUpdateStatus, onAssignTicket, on
           <AssignTicketDialog
             incident={selectedIncident}
             allIncidents={incidents}
-            isOpen={!!selectedIncident}
+            isOpen={!!selectedIncident && !showCommentsDialog}
             onClose={() => setSelectedIncident(null)}
             onAssign={handleAssign}
+            currentUserRole={currentUserRole}
             users={users}
+          />
+        )}
+        
+        {/* Dialog pour les commentaires */}
+        {selectedIncident && currentUser && (
+          <Dialog open={showCommentsDialog} onOpenChange={setShowCommentsDialog}>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Icon name="MessageSquare" className="text-blue-600" />
+                  Commentaires - Ticket {formatTicketNumber(selectedIncident, incidents, users)}
+                </DialogTitle>
+              </DialogHeader>
+              <TicketComments
+                incident={selectedIncident}
+                currentUser={currentUser}
+                onCommentAdded={() => {
+                  // Rafraîchir les incidents pour mettre à jour les commentaires
+                  window.location.reload();
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Dialog pour modifier le prestataire */}
+        {selectedIncident && onUpdatePrestataire && (
+          <EditPrestataireDialog
+            incident={selectedIncident}
+            isOpen={showPrestataireDialog}
+            onClose={() => {
+              setShowPrestataireDialog(false);
+              setSelectedIncident(null);
+            }}
+            onUpdate={onUpdatePrestataire}
           />
         )}
       </CardContent>

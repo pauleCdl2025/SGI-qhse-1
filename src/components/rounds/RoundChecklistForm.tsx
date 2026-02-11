@@ -5,13 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/Icon";
-import { DailyRound, RoundChecklistTemplate, RoundChecklistResponse, User } from "@/types";
+import { DailyRound, RoundChecklistTemplate, RoundChecklistResponse, User, EquipmentStatus } from "@/types";
 import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { locations } from "@/lib/locations";
 
 interface RoundChecklistFormProps {
   round: DailyRound;
@@ -105,6 +106,56 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     }
   };
 
+  const handleEquipmentStatusChange = async (templateId: string, status: EquipmentStatus) => {
+    const existingResponse = responses[templateId];
+    const responseData: Partial<RoundChecklistResponse> = {
+      round_id: round.id,
+      template_id: templateId,
+      equipment_status: status,
+    };
+
+    try {
+      let response: RoundChecklistResponse;
+      if (existingResponse) {
+        response = await apiClient.updateRoundChecklistResponse(existingResponse.id, { equipment_status: status });
+      } else {
+        // Créer une réponse si elle n'existe pas encore
+        response = await apiClient.createRoundChecklistResponse({
+          ...responseData,
+          is_checked: true, // Si on marque l'état, c'est que l'item est effectué
+        } as RoundChecklistResponse);
+      }
+      setResponses(prev => ({
+        ...prev,
+        [templateId]: response,
+      }));
+    } catch (error: any) {
+      showError("Erreur lors de la sauvegarde: " + error.message);
+    }
+  };
+
+  const handleEquipmentInfoChange = async (templateId: string, field: 'equipment_name' | 'service_name', value: string) => {
+    const existingResponse = responses[templateId];
+    if (!existingResponse) return;
+
+    try {
+      const updateData: Partial<RoundChecklistResponse> = {};
+      if (field === 'equipment_name') {
+        updateData.equipment_name = value;
+      } else if (field === 'service_name') {
+        updateData.service_name = value;
+      }
+
+      const updated = await apiClient.updateRoundChecklistResponse(existingResponse.id, updateData);
+      setResponses(prev => ({
+        ...prev,
+        [templateId]: updated,
+      }));
+    } catch (error: any) {
+      showError("Erreur lors de la sauvegarde: " + error.message);
+    }
+  };
+
   const handleCompleteRound = async () => {
     if (!technicianName || technicianName.trim() === '') {
       showError("Veuillez saisir votre nom avant de terminer la ronde");
@@ -113,13 +164,133 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
 
     try {
       setSaving(true);
+      
+      // Mettre à jour la ronde
       await apiClient.updateDailyRound(round.id, {
         status: 'terminée',
         end_time: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
         notes: notes,
         technician_name: technicianName.trim(),
       });
-      showSuccess("Ronde terminée avec succès");
+
+      // Recharger les réponses pour s'assurer d'avoir les dernières données (equipment_status, equipment_name, service_name)
+      console.log('🔄 Rechargement des réponses avant création des tâches...');
+      const latestResponsesData = await apiClient.getRoundChecklistResponses(round.id);
+      const latestResponsesMap: Record<string, RoundChecklistResponse> = {};
+      latestResponsesData.forEach((response: RoundChecklistResponse) => {
+        latestResponsesMap[response.template_id] = response;
+      });
+      setResponses(latestResponsesMap);
+      
+      // Attendre un peu pour que l'état soit mis à jour
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Pour les rondes biomédicales : créer des tâches uniquement pour les équipements défectueux
+      if (round.round_type === 'biomedical') {
+        const itemsToCreateTasks: Array<{ template: RoundChecklistTemplate; response: RoundChecklistResponse }> = [];
+        
+        console.log('🔍 Vérification des équipements défectueux pour création de tâches...');
+        templates.forEach((template) => {
+          // Utiliser les réponses rechargées
+          const response = latestResponsesMap[template.id] || responses[template.id];
+          console.log(`  - Item: ${template.title}`, {
+            is_checked: response?.is_checked,
+            equipment_status: response?.equipment_status,
+            equipment_name: response?.equipment_name,
+            service_name: response?.service_name
+          });
+          
+          // Créer une tâche uniquement si l'équipement est marqué comme défectueux
+          if (response?.is_checked && response?.equipment_status === 'défectueux') {
+            console.log(`  ✅ Équipement défectueux trouvé: ${template.title}`);
+            itemsToCreateTasks.push({ template, response });
+          }
+        });
+        
+        console.log(`📋 Total d'équipements défectueux à traiter: ${itemsToCreateTasks.length}`);
+
+        // Créer des tâches automatiquement pour les équipements défectueux
+        if (itemsToCreateTasks.length > 0) {
+          const dueDate = new Date();
+          dueDate.setDate(dueDate.getDate() + 7); // Échéance dans 7 jours
+          
+          let tasksCreated = 0;
+          let tasksSkipped = 0;
+          for (const { template, response } of itemsToCreateTasks) {
+            try {
+              // Vérifier que les informations requises sont présentes
+              if (!response.equipment_name || !response.service_name) {
+                console.warn(`⚠️ Informations manquantes pour ${template.title}:`, {
+                  equipment_name: response.equipment_name,
+                  service_name: response.service_name
+                });
+                tasksSkipped++;
+                continue;
+              }
+              
+              console.log(`🛠️ Création de la tâche pour: ${response.equipment_name} (${response.service_name})`);
+
+              const taskTitle = `[Réparation] ${response.equipment_name}`;
+              let taskDescription = `Équipement défectueux détecté lors de la ronde biomédicale.\n\n`;
+              
+              taskDescription += `📋 Item de la ronde: ${template.title}\n`;
+              if (template.description) {
+                taskDescription += `Description: ${template.description}\n`;
+              }
+              taskDescription += `\n🔧 Équipement: ${response.equipment_name}\n`;
+              taskDescription += `📍 Service/Localisation: ${response.service_name}\n`;
+              
+              if (response.observation) {
+                taskDescription += `\n📝 Observation: ${response.observation}\n`;
+              }
+              
+              taskDescription += `\n📅 Ronde effectuée le: ${format(new Date(round.round_date), "dd/MM/yyyy", { locale: fr })}`;
+              if (round.start_time) {
+                taskDescription += ` à ${format(new Date(round.start_time), "HH:mm", { locale: fr })}`;
+              }
+              taskDescription += `\n👤 Technicien: ${technicianName.trim()}`;
+              
+              const taskData = {
+                title: taskTitle,
+                description: taskDescription,
+                assigned_to: user.id,
+                assignee_name: technicianName.trim(),
+                due_date: format(dueDate, "yyyy-MM-dd"),
+              };
+              
+              console.log('📤 Envoi de la tâche au backend:', taskData);
+              const result = await apiClient.createPlannedTask(taskData);
+              console.log('✅ Tâche créée avec succès:', result);
+              
+              tasksCreated++;
+            } catch (error: any) {
+              console.error(`❌ Erreur lors de la création de la tâche pour ${template.title}:`, error);
+              console.error('Détails de l\'erreur:', {
+                message: error.message,
+                status: error.status,
+                response: error.response
+              });
+              // Continuer avec les autres tâches même si une échoue
+            }
+          }
+          
+          console.log(`📊 Résumé: ${tasksCreated} tâche(s) créée(s), ${tasksSkipped} ignorée(s) (infos manquantes)`);
+          
+          if (tasksCreated > 0) {
+            showSuccess(`Ronde terminée avec succès. ${tasksCreated} tâche(s) de réparation créée(s) automatiquement dans "Mes Tâches".`);
+          } else if (tasksSkipped > 0) {
+            showError(`Ronde terminée, mais ${tasksSkipped} tâche(s) n'a(ont) pas pu être créée(s) car les informations équipement/service sont manquantes.`);
+          } else {
+            showSuccess("Ronde terminée avec succès");
+          }
+        } else {
+          showSuccess("Ronde terminée avec succès");
+        }
+      } else {
+        // Pour les autres types de rondes, pas de création automatique de tâches
+        showSuccess("Ronde terminée avec succès");
+      }
+      
       onComplete();
     } catch (error: any) {
       showError("Erreur lors de la finalisation: " + error.message);
@@ -133,12 +304,35 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     const response = responses[t.id];
     if (!response) return false;
     if (t.item_type === 'checkbox') {
+      // Pour les rondes biomédicales, vérifier aussi que l'état de l'équipement est défini
+      if (round.round_type === 'biomedical' && response.is_checked) {
+        return response.equipment_status !== undefined && response.equipment_status !== null && response.equipment_status !== '';
+      }
       return response.is_checked;
     }
     return response.response_value && response.response_value.trim() !== '';
   });
 
-  const allRequiredCompleted = requiredItems.length > 0 && completedRequiredItems.length === requiredItems.length;
+  // Vérifier que tous les items cochés ont un état défini pour les rondes biomédicales
+  const allCheckedItemsHaveStatus = round.round_type === 'biomedical' 
+    ? templates.filter(t => {
+        const response = responses[t.id];
+        return t.item_type === 'checkbox' && response?.is_checked;
+      }).every(t => {
+        const response = responses[t.id];
+        if (!response?.equipment_status || response.equipment_status === '') {
+          return false;
+        }
+        // Si défectueux, vérifier que equipment_name et service_name sont remplis
+        if (response.equipment_status === 'défectueux') {
+          return response.equipment_name && response.equipment_name.trim() !== '' &&
+                 response.service_name && response.service_name.trim() !== '';
+        }
+        return true;
+      })
+    : true;
+
+  const allRequiredCompleted = requiredItems.length > 0 && completedRequiredItems.length === requiredItems.length && allCheckedItemsHaveStatus;
   const completionPercentage = requiredItems.length > 0 
     ? Math.round((completedRequiredItems.length / requiredItems.length) * 100)
     : 100;
@@ -234,15 +428,83 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
               </CardHeader>
               <CardContent className="space-y-4">
                 {template.item_type === 'checkbox' && (
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`checkbox-${template.id}`}
-                      checked={response?.is_checked || false}
-                      onCheckedChange={(checked) => handleResponseChange(template.id, checked)}
-                    />
-                    <Label htmlFor={`checkbox-${template.id}`} className="cursor-pointer">
-                      {response?.is_checked ? "Effectué" : "À faire"}
-                    </Label>
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`checkbox-${template.id}`}
+                        checked={response?.is_checked || false}
+                        onCheckedChange={(checked) => handleResponseChange(template.id, checked)}
+                      />
+                      <Label htmlFor={`checkbox-${template.id}`} className="cursor-pointer">
+                        {response?.is_checked ? "Effectué" : "À faire"}
+                      </Label>
+                    </div>
+                    
+                    {/* Sélection de l'état de l'équipement pour les rondes biomédicales */}
+                    {round.round_type === 'biomedical' && response?.is_checked && (
+                      <div className="space-y-3 pl-6 border-l-2 border-cyan-200">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">État de l'équipement *</Label>
+                          <select
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={response?.equipment_status || ''}
+                            onChange={(e) => handleEquipmentStatusChange(template.id, e.target.value as EquipmentStatus)}
+                            required
+                          >
+                            <option value="">Sélectionner l'état...</option>
+                            <option value="bon_état">✅ En bon état</option>
+                            <option value="défectueux">⚠️ Défectueux (nécessite réparation)</option>
+                          </select>
+                        </div>
+                        
+                        {/* Champs équipement et service si défectueux */}
+                        {response?.equipment_status === 'défectueux' && (
+                          <div className="space-y-3 pt-2 border-t border-gray-200">
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Nom de l'équipement *</Label>
+                              <Input
+                                placeholder="Ex: Moniteur cardiaque, Défibrillateur, Ventilateur..."
+                                value={response?.equipment_name || ''}
+                                onChange={(e) => handleEquipmentInfoChange(template.id, 'equipment_name', e.target.value)}
+                                required
+                                className="w-full"
+                              />
+                              <p className="text-xs text-gray-500">
+                                Précisez le nom ou l'identification de l'équipement défectueux
+                              </p>
+                            </div>
+                            
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Service / Localisation *</Label>
+                              <select
+                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={response?.service_name || ''}
+                                onChange={(e) => handleEquipmentInfoChange(template.id, 'service_name', e.target.value)}
+                                required
+                              >
+                                <option value="">Sélectionner le service...</option>
+                                {locations.map((group) => (
+                                  <optgroup key={group.label} label={group.label}>
+                                    {group.options.map((location) => (
+                                      <option key={location} value={location}>
+                                        {location}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                              <p className="text-xs text-gray-500">
+                                Indiquez où se trouve l'équipement défectueux
+                              </p>
+                            </div>
+                            
+                            <p className="text-xs text-amber-600 font-medium">
+                              ⚠️ Une tâche de réparation sera créée automatiquement dans "Mes Tâches"
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -332,6 +594,11 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
           <Icon name={saving ? "Clock" : "Check"} className="mr-2 h-4 w-4" />
           {saving ? "Enregistrement..." : round.status === 'terminée' ? "Ronde terminée" : "Terminer la ronde"}
         </Button>
+        {round.round_type === 'biomedical' && !allCheckedItemsHaveStatus && (
+          <p className="text-xs text-red-500 mt-1">
+            ⚠️ Veuillez indiquer l'état de tous les équipements effectués. Si un équipement est défectueux, précisez son nom et son service/localisation.
+          </p>
+        )}
       </div>
     </div>
   );

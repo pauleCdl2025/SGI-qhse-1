@@ -55,10 +55,19 @@ export const usePlannedTasks = ({ currentUser, users, addNotification }: UsePlan
       return;
     }
 
-    // Seul le superviseur QHSE peut créer des tâches planifiées
+    // Vérifier les permissions : superviseur QHSE et superadmin peuvent créer pour n'importe qui
+    // Les techniciens (biomedical, technicien_polyvalent) peuvent créer des tâches uniquement pour eux-mêmes
     if (currentUser.details.role !== 'superviseur_qhse' && currentUser.details.role !== 'superadmin') {
-      showError("Seul le superviseur QHSE peut créer des tâches planifiées.");
+      if (currentUser.details.role === 'biomedical' || currentUser.details.role === 'technicien_polyvalent') {
+        // Les techniciens ne peuvent créer des tâches que pour eux-mêmes
+        if (task.assigned_to !== currentUser.details.id) {
+          showError("Vous ne pouvez créer des tâches que pour vous-même.");
+          return;
+        }
+      } else {
+        showError("Vous n'avez pas la permission de créer des tâches planifiées.");
       return;
+      }
     }
 
     try {

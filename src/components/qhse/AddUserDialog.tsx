@@ -73,6 +73,7 @@ export const AddUserDialog = ({ onAddUser, currentUserRole, isOpen, onOpenChange
         return (
           <>
             <SelectItem value="superviseur_qhse">Superviseur QHSE</SelectItem>
+            <SelectItem value="assistante_qhse">Assistante QHSE</SelectItem>
             <SelectItem value="superviseur_agent_securite">Superviseur Agent de Sécurité</SelectItem>
             <SelectItem value="superviseur_agent_entretien">Superviseur Agent d'Entretien</SelectItem>
             <SelectItem value="superviseur_technicien">Superviseur Technicien</SelectItem>
@@ -88,6 +89,7 @@ export const AddUserDialog = ({ onAddUser, currentUserRole, isOpen, onOpenChange
       case 'superviseur_qhse':
         return (
           <>
+            <SelectItem value="assistante_qhse">Assistante QHSE</SelectItem>
             <SelectItem value="superviseur_agent_securite">Superviseur Agent de Sécurité</SelectItem>
             <SelectItem value="superviseur_agent_entretien">Superviseur Agent d'Entretien</SelectItem>
             <SelectItem value="superviseur_technicien">Superviseur Technicien</SelectItem>

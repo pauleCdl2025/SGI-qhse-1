@@ -31,7 +31,7 @@ const App = () => {
   const { notifications, addNotification, markNotificationsAsRead, markNotificationAsRead, setNotifications } = useNotifications();
 
   // Other hooks
-  const { incidents, setIncidents, addIncident, updateIncidentStatus, deleteIncident, addInterventionReport, assignTicket, unassignTicket, planIntervention } = useIncidents({ currentUser, users, addNotification });
+  const { incidents, setIncidents, addIncident, updateIncidentStatus, deleteIncident, addInterventionReport, assignTicket, unassignTicket, planIntervention, updatePrestataire } = useIncidents({ currentUser, users, addNotification });
   const { visitors, setVisitors, addVisitor, signOutVisitor, deleteVisitor } = useVisitors({ currentUser });
   const { biomedicalEquipment, setBiomedicalEquipment, maintenanceTasks, setMaintenanceTasks, addBiomedicalEquipment, updateBiomedicalEquipmentStatus, scheduleMaintenanceTask, updateMaintenanceTaskStatus } = useBiomedicalEquipment({ addNotification });
   const { rooms, setRooms, bookings, setBookings, doctors, setDoctors, addBooking, updateBooking, deleteBooking, expiringBookingIds, preExpiringBookingIds, startBooking, endBooking } = useBookings({ currentUser, users, addNotification });
@@ -108,6 +108,7 @@ const App = () => {
                       assignTicket={assignTicket}
                       unassignTicket={unassignTicket}
                       planIntervention={planIntervention}
+                      updatePrestataire={updatePrestataire}
                       visitors={visitors}
                       addVisitor={addVisitor}
                       signOutVisitor={signOutVisitor}
@@ -143,7 +144,7 @@ const App = () => {
                     />
                   } 
                 />
-                <Route path="/incident/:id" element={<IncidentDetailsPage incidents={incidents} users={users} />} />
+                <Route path="/incident/:id" element={<IncidentDetailsPage incidents={incidents} users={users} currentUser={currentUser?.details || null} />} />
                 <Route path="/login" element={<Navigate to="/" />} />
               </>
             ) : (

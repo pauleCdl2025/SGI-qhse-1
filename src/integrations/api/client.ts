@@ -150,6 +150,17 @@ class ApiClient {
     });
   }
 
+  async getIncidentComments(incidentId: string) {
+    return this.request<any[]>(`/incidents/${incidentId}/comments`);
+  }
+
+  async addIncidentComment(incidentId: string, data: { comment: string; user_name: string }) {
+    return this.request(`/incidents/${incidentId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async updateIncident(id: string, data: any) {
     return this.request(`/incidents/${id}`, {
       method: 'PUT',
@@ -180,6 +191,35 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  // AES (Accidents d'Exposition au Sang)
+  async getAES() {
+    return this.request<any[]>('/aes');
+  }
+
+  async getAESById(id: string) {
+    return this.request<any>(`/aes/${id}`);
+  }
+
+  async createAES(aes: any) {
+    return this.request('/aes', {
+      method: 'POST',
+      body: JSON.stringify(aes),
+    });
+  }
+
+  async updateAES(id: string, data: any) {
+    return this.request(`/aes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAES(id: string) {
+    return this.request(`/aes/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   // Visiteurs
@@ -681,6 +721,35 @@ class ApiClient {
     return this.request(`/round-checklist-responses/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  }
+
+  // Camera Access Requests
+  async getCameraAccessRequests() {
+    return this.request<any[]>('/camera-access-requests');
+  }
+
+  async getCameraAccessRequest(id: string) {
+    return this.request<any>(`/camera-access-requests/${id}`);
+  }
+
+  async createCameraAccessRequest(request: any) {
+    return this.request('/camera-access-requests', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateCameraAccessRequest(id: string, data: any) {
+    return this.request(`/camera-access-requests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCameraAccessRequest(id: string) {
+    return this.request(`/camera-access-requests/${id}`, {
+      method: 'DELETE',
     });
   }
 }

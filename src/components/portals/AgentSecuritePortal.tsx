@@ -162,6 +162,16 @@ export const AgentSecuritePortal = ({ user, incidents, visitors, plannedTasks, n
                   <div className="text-sm text-gray-600">Consulter tous les incidents</div>
                 </div>
               </button>
+              <button
+                onClick={() => onNavigate('cameraAccessRequest')}
+                className="w-full p-4 bg-purple-50 border-2 border-purple-200 rounded-lg hover:bg-purple-100 transition-all text-left flex items-center"
+              >
+                <Icon name="Video" className="text-purple-600 mr-3" />
+                <div>
+                  <div className="font-semibold text-gray-900">Demande d'Accès aux Caméras</div>
+                  <div className="text-sm text-gray-600">Formulaire de demande d'accès</div>
+                </div>
+              </button>
             </div>
           </CardContent>
         </Card>

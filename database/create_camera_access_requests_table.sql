@@ -1,0 +1,24 @@
+-- Table pour les demandes d'accès aux caméras
+CREATE TABLE IF NOT EXISTS camera_access_requests (
+  id VARCHAR(36) PRIMARY KEY,
+  requester_id VARCHAR(36) NOT NULL,
+  requester_name VARCHAR(255),
+  requester_service VARCHAR(255),
+  requester_position VARCHAR(255),
+  request_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  access_reason TEXT NOT NULL,
+  access_start_date DATE NOT NULL,
+  access_end_date DATE NOT NULL,
+  access_start_time TIME,
+  access_end_time TIME,
+  camera_zones TEXT,
+  hierarchical_authorization VARCHAR(255),
+  hierarchical_authorization_date DATETIME,
+  status ENUM('en_attente', 'approuve', 'refuse', 'annule') NOT NULL DEFAULT 'en_attente',
+  notes TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_requester_id (requester_id),
+  INDEX idx_status (status),
+  INDEX idx_request_date (request_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

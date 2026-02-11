@@ -531,6 +531,7 @@ app.get('/api/incidents', authenticateToken, async (req, res) => {
         ...inc,
         priorite: priorite, // Forcer la priorité à une valeur valide
         assigned_to_name: inc.assigned_to_name || null,
+        prestataire: inc.prestataire || null,
         photo_urls: (() => {
           const parsed = safeJsonParse(inc.photo_urls, []);
           if (Array.isArray(parsed)) {
@@ -612,7 +613,7 @@ app.post('/api/incidents', authenticateToken, validateIncident, async (req, res)
 
 app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
   try {
-    const { statut, assigned_to, assigned_to_name, priorite, deadline, report } = req.body;
+    const { statut, assigned_to, assigned_to_name, prestataire, priorite, deadline, report } = req.body;
     
     // Récupérer l'incident existant pour vérifier les permissions
     const [incidents] = await pool.execute('SELECT * FROM incidents WHERE id = ?', [req.params.id]);
@@ -685,6 +686,10 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
       updates.push('deadline = ?');
       values.push(deadline);
     }
+    if (prestataire !== undefined) {
+      updates.push('prestataire = ?');
+      values.push(prestataire || null);
+    }
     if (report !== undefined) {
       updates.push('report = ?');
       values.push(JSON.stringify(report));
@@ -699,6 +704,49 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Incident mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de l\'incident:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Routes pour les commentaires d'incidents
+app.get('/api/incidents/:id/comments', authenticateToken, async (req, res) => {
+  try {
+    const [comments] = await pool.execute(
+      'SELECT * FROM incident_comments WHERE incident_id = ? ORDER BY created_at DESC',
+      [req.params.id]
+    );
+    res.json(comments.map(c => ({
+      ...c,
+      created_at: new Date(c.created_at),
+      updated_at: c.updated_at ? new Date(c.updated_at) : undefined
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération des commentaires:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.post('/api/incidents/:id/comments', authenticateToken, async (req, res) => {
+  try {
+    const { comment, user_name } = req.body;
+    if (!comment || !comment.trim()) {
+      return res.status(400).json({ error: 'Le commentaire ne peut pas être vide' });
+    }
+    
+    const id = uuidv4();
+    await pool.execute(
+      'INSERT INTO incident_comments (id, incident_id, user_id, user_name, comment) VALUES (?, ?, ?, ?, ?)',
+      [id, req.params.id, req.user.id, user_name || req.user.username, comment.trim()]
+    );
+    
+    const [newComment] = await pool.execute('SELECT * FROM incident_comments WHERE id = ?', [id]);
+    res.json({
+      ...newComment[0],
+      created_at: new Date(newComment[0].created_at),
+      updated_at: newComment[0].updated_at ? new Date(newComment[0].updated_at) : undefined
+    });
+  } catch (error) {
+    console.error('Erreur lors de l\'ajout du commentaire:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -926,6 +974,579 @@ app.put('/api/maintenance-tasks/:id/status', authenticateToken, async (req, res)
   }
 });
 
+// Routes pour les Accidents d'Exposition au Sang (AES)
+app.get('/api/aes', authenticateToken, async (req, res) => {
+  try {
+    const [aes] = await pool.execute(
+      `SELECT a.*, 
+              CONCAT(p.first_name, ' ', p.last_name) as created_by_name
+       FROM aes a
+       LEFT JOIN profiles p ON a.created_by = p.id
+       ORDER BY a.date_aes DESC, a.heure_aes DESC`
+    );
+    res.json(aes);
+  } catch (error) {
+    console.error('Erreur lors de la récupération des AES:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.get('/api/aes/:id', authenticateToken, async (req, res) => {
+  try {
+    const [aes] = await pool.execute(
+      `SELECT a.*, 
+              CONCAT(p.first_name, ' ', p.last_name) as created_by_name
+       FROM aes a
+       LEFT JOIN profiles p ON a.created_by = p.id
+       WHERE a.id = ?`,
+      [req.params.id]
+    );
+    if (aes.length === 0) {
+      return res.status(404).json({ error: 'AES non trouvé' });
+    }
+    res.json(aes[0]);
+  } catch (error) {
+    console.error('Erreur lors de la récupération de l\'AES:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.post('/api/aes', authenticateToken, async (req, res) => {
+  try {
+    console.log('POST /api/aes - Données reçues:', JSON.stringify(req.body, null, 2));
+    
+    const {
+      agent_nom, agent_prenom, agent_matricule, agent_fonction, agent_service, agent_telephone, agent_statut,
+      date_aes, heure_aes, lieu_precis, type_exposition, description_circonstances,
+      type_dispositif, usage_unique, souille_sang, dans_sac_dasri,
+      patient_source_identifiee, patient_code_identifiant, consentement_prelevement,
+      lavage_eau_savon, desinfection, rinçage_muqueuse, heure_premiers_soins,
+      medecin_referent_aes, examen_vih, examen_vhb, examen_vhc, traitement_arv_initie, date_debut_traitement,
+      resultat_agent_vih, resultat_agent_vhb, resultat_agent_vhc,
+      resultat_patient_vih, resultat_patient_vhb, resultat_patient_vhc, conduite_tenir,
+      orientation_infectiologue, orientation_psychologue, dates_suivi_prevues,
+      suivi_m1_date, suivi_m1_vih, suivi_m1_vhb, suivi_m1_vhc,
+      suivi_m6_date, suivi_m6_vih, suivi_m6_vhb, suivi_m6_vhc,
+      suivi_m9_date, suivi_m9_vih, suivi_m9_vhb, suivi_m9_vhc,
+      dossier_cloture, date_cloture, nom_signature_qhse
+    } = req.body;
+
+    const id = uuidv4();
+    
+    // Fonction helper pour convertir undefined en null
+    const toNull = (val) => (val === undefined || val === '') ? null : val;
+    const toBool = (val) => val === true ? true : (val === false ? false : null);
+    
+    // Préparer les valeurs pour l'insertion
+    const values = [
+      id, 
+      agent_nom, 
+      agent_prenom, 
+      toNull(agent_matricule), 
+      toNull(agent_fonction), 
+      toNull(agent_service), 
+      toNull(agent_telephone), 
+      agent_statut,
+      date_aes, 
+      heure_aes, 
+      toNull(lieu_precis), 
+      type_exposition, 
+      toNull(description_circonstances),
+      toNull(type_dispositif), 
+      toBool(usage_unique), 
+      toBool(souille_sang), 
+      toBool(dans_sac_dasri),
+      toBool(patient_source_identifiee), 
+      toNull(patient_code_identifiant), 
+      toBool(consentement_prelevement),
+      toBool(lavage_eau_savon), 
+      toBool(desinfection), 
+      toBool(rinçage_muqueuse), 
+      toNull(heure_premiers_soins),
+      toNull(medecin_referent_aes), 
+      examen_vih || false, 
+      examen_vhb || false, 
+      examen_vhc || false, 
+      toBool(traitement_arv_initie), 
+      toNull(date_debut_traitement),
+      toBool(resultat_agent_vih), 
+      toBool(resultat_agent_vhb), 
+      toBool(resultat_agent_vhc),
+      toBool(resultat_patient_vih), 
+      toBool(resultat_patient_vhb), 
+      toBool(resultat_patient_vhc), 
+      toNull(conduite_tenir),
+      toBool(orientation_infectiologue), 
+      toBool(orientation_psychologue), 
+      toNull(dates_suivi_prevues),
+      toNull(suivi_m1_date), 
+      toBool(suivi_m1_vih), 
+      toBool(suivi_m1_vhb), 
+      toBool(suivi_m1_vhc),
+      toNull(suivi_m6_date), 
+      toBool(suivi_m6_vih), 
+      toBool(suivi_m6_vhb), 
+      toBool(suivi_m6_vhc),
+      toNull(suivi_m9_date), 
+      toBool(suivi_m9_vih), 
+      toBool(suivi_m9_vhb), 
+      toBool(suivi_m9_vhc),
+      dossier_cloture || false, 
+      toNull(date_cloture), 
+      toNull(nom_signature_qhse), 
+      req.user.id
+    ];
+    
+    console.log('POST /api/aes - Nombre de valeurs:', values.length);
+    console.log('POST /api/aes - Valeurs:', JSON.stringify(values, null, 2));
+
+    await pool.execute(
+      `INSERT INTO aes (
+        id, agent_nom, agent_prenom, agent_matricule, agent_fonction, agent_service, agent_telephone, agent_statut,
+        date_aes, heure_aes, lieu_precis, type_exposition, description_circonstances,
+        type_dispositif, usage_unique, souille_sang, dans_sac_dasri,
+        patient_source_identifiee, patient_code_identifiant, consentement_prelevement,
+        lavage_eau_savon, desinfection, rinçage_muqueuse, heure_premiers_soins,
+        medecin_referent_aes, examen_vih, examen_vhb, examen_vhc, traitement_arv_initie, date_debut_traitement,
+        resultat_agent_vih, resultat_agent_vhb, resultat_agent_vhc,
+        resultat_patient_vih, resultat_patient_vhb, resultat_patient_vhc, conduite_tenir,
+        orientation_infectiologue, orientation_psychologue, dates_suivi_prevues,
+        suivi_m1_date, suivi_m1_vih, suivi_m1_vhb, suivi_m1_vhc,
+        suivi_m6_date, suivi_m6_vih, suivi_m6_vhb, suivi_m6_vhc,
+        suivi_m9_date, suivi_m9_vih, suivi_m9_vhb, suivi_m9_vhc,
+        dossier_cloture, date_cloture, nom_signature_qhse, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      values
+    );
+
+    console.log('POST /api/aes - AES créé avec succès, ID:', id);
+    res.json({ id, message: 'AES créé avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la création de l\'AES:', error);
+    console.error('Stack trace:', error.stack);
+    res.status(500).json({ 
+      error: 'Erreur serveur',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+app.put('/api/aes/:id', authenticateToken, async (req, res) => {
+  try {
+    console.log('PUT /api/aes/:id - Données reçues:', JSON.stringify(req.body, null, 2));
+    
+    const {
+      agent_nom, agent_prenom, agent_matricule, agent_fonction, agent_service, agent_telephone, agent_statut,
+      date_aes, heure_aes, lieu_precis, type_exposition, description_circonstances,
+      type_dispositif, usage_unique, souille_sang, dans_sac_dasri,
+      patient_source_identifiee, patient_code_identifiant, consentement_prelevement,
+      lavage_eau_savon, desinfection, rinçage_muqueuse, heure_premiers_soins,
+      medecin_referent_aes, examen_vih, examen_vhb, examen_vhc, traitement_arv_initie, date_debut_traitement,
+      resultat_agent_vih, resultat_agent_vhb, resultat_agent_vhc,
+      resultat_patient_vih, resultat_patient_vhb, resultat_patient_vhc, conduite_tenir,
+      orientation_infectiologue, orientation_psychologue, dates_suivi_prevues,
+      suivi_m1_date, suivi_m1_vih, suivi_m1_vhb, suivi_m1_vhc,
+      suivi_m6_date, suivi_m6_vih, suivi_m6_vhb, suivi_m6_vhc,
+      suivi_m9_date, suivi_m9_vih, suivi_m9_vhb, suivi_m9_vhc,
+      dossier_cloture, date_cloture, nom_signature_qhse
+    } = req.body;
+
+    // Fonction helper pour convertir undefined en null
+    const toNull = (val) => (val === undefined || val === '') ? null : val;
+    const toBool = (val) => val === true ? true : (val === false ? false : null);
+
+    const updates = [];
+    const values = [];
+
+    // Construire dynamiquement la requête UPDATE avec gestion correcte des types
+    const fields = {
+      agent_nom, 
+      agent_prenom, 
+      agent_matricule: toNull(agent_matricule), 
+      agent_fonction: toNull(agent_fonction), 
+      agent_service: toNull(agent_service), 
+      agent_telephone: toNull(agent_telephone), 
+      agent_statut,
+      date_aes, 
+      heure_aes, 
+      lieu_precis: toNull(lieu_precis), 
+      type_exposition, 
+      description_circonstances: toNull(description_circonstances),
+      type_dispositif: toNull(type_dispositif), 
+      usage_unique: toBool(usage_unique), 
+      souille_sang: toBool(souille_sang), 
+      dans_sac_dasri: toBool(dans_sac_dasri),
+      patient_source_identifiee: toBool(patient_source_identifiee), 
+      patient_code_identifiant: toNull(patient_code_identifiant), 
+      consentement_prelevement: toBool(consentement_prelevement),
+      lavage_eau_savon: toBool(lavage_eau_savon), 
+      desinfection: toBool(desinfection), 
+      rinçage_muqueuse: toBool(rinçage_muqueuse), 
+      heure_premiers_soins: toNull(heure_premiers_soins),
+      medecin_referent_aes: toNull(medecin_referent_aes), 
+      examen_vih: examen_vih !== undefined ? (examen_vih || false) : undefined, 
+      examen_vhb: examen_vhb !== undefined ? (examen_vhb || false) : undefined, 
+      examen_vhc: examen_vhc !== undefined ? (examen_vhc || false) : undefined, 
+      traitement_arv_initie: toBool(traitement_arv_initie), 
+      date_debut_traitement: toNull(date_debut_traitement),
+      resultat_agent_vih: toBool(resultat_agent_vih), 
+      resultat_agent_vhb: toBool(resultat_agent_vhb), 
+      resultat_agent_vhc: toBool(resultat_agent_vhc),
+      resultat_patient_vih: toBool(resultat_patient_vih), 
+      resultat_patient_vhb: toBool(resultat_patient_vhb), 
+      resultat_patient_vhc: toBool(resultat_patient_vhc), 
+      conduite_tenir: toNull(conduite_tenir),
+      orientation_infectiologue: toBool(orientation_infectiologue), 
+      orientation_psychologue: toBool(orientation_psychologue), 
+      dates_suivi_prevues: toNull(dates_suivi_prevues),
+      suivi_m1_date: toNull(suivi_m1_date), 
+      suivi_m1_vih: toBool(suivi_m1_vih), 
+      suivi_m1_vhb: toBool(suivi_m1_vhb), 
+      suivi_m1_vhc: toBool(suivi_m1_vhc),
+      suivi_m6_date: toNull(suivi_m6_date), 
+      suivi_m6_vih: toBool(suivi_m6_vih), 
+      suivi_m6_vhb: toBool(suivi_m6_vhb), 
+      suivi_m6_vhc: toBool(suivi_m6_vhc),
+      suivi_m9_date: toNull(suivi_m9_date), 
+      suivi_m9_vih: toBool(suivi_m9_vih), 
+      suivi_m9_vhb: toBool(suivi_m9_vhb), 
+      suivi_m9_vhc: toBool(suivi_m9_vhc),
+      dossier_cloture: dossier_cloture !== undefined ? (dossier_cloture || false) : undefined, 
+      date_cloture: toNull(date_cloture), 
+      nom_signature_qhse: toNull(nom_signature_qhse)
+    };
+
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== undefined) {
+        updates.push(`${key} = ?`);
+        values.push(value);
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Aucune donnée à mettre à jour' });
+    }
+
+    values.push(req.params.id);
+
+    console.log('PUT /api/aes/:id - Requête UPDATE:', updates.join(', '));
+    console.log('PUT /api/aes/:id - Valeurs:', JSON.stringify(values, null, 2));
+
+    await pool.execute(
+      `UPDATE aes SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    console.log('PUT /api/aes/:id - AES mis à jour avec succès');
+    res.json({ message: 'AES mis à jour avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour de l\'AES:', error);
+    console.error('Stack trace:', error.stack);
+    res.status(500).json({ 
+      error: 'Erreur serveur',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+app.delete('/api/aes/:id', authenticateToken, async (req, res) => {
+  try {
+    const [result] = await pool.execute('DELETE FROM aes WHERE id = ?', [req.params.id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'AES non trouvé' });
+    }
+    res.json({ message: 'AES supprimé avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression de l\'AES:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Routes pour les demandes d'accès aux caméras
+app.get('/api/camera-access-requests', authenticateToken, async (req, res) => {
+  try {
+    // Vérifier si la table existe, sinon la créer
+    let hasTable = false;
+    try {
+      const [tables] = await pool.execute(
+        `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'camera_access_requests'`,
+        [dbConfig.database]
+      );
+      hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    } catch (checkError) {
+      console.error('Erreur lors de la vérification de la table:', checkError);
+      // Si on ne peut pas vérifier, on essaie de créer la table
+      hasTable = false;
+    }
+    
+    if (!hasTable) {
+      try {
+        console.log('🛠️  Création de la table camera_access_requests...');
+        await pool.execute(`
+          CREATE TABLE IF NOT EXISTS camera_access_requests (
+            id VARCHAR(36) PRIMARY KEY,
+            requester_id VARCHAR(36) NOT NULL,
+            requester_name VARCHAR(255),
+            requester_service VARCHAR(255),
+            requester_position VARCHAR(255),
+            request_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            access_reason TEXT NOT NULL,
+            access_start_date DATE NOT NULL,
+            access_end_date DATE NOT NULL,
+            access_start_time TIME,
+            access_end_time TIME,
+            camera_zones TEXT,
+            hierarchical_authorization VARCHAR(255),
+            hierarchical_authorization_date DATETIME,
+            status ENUM('en_attente', 'approuve', 'refuse', 'annule') NOT NULL DEFAULT 'en_attente',
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_requester_id (requester_id),
+            INDEX idx_status (status),
+            INDEX idx_request_date (request_date)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✅ Table camera_access_requests créée.');
+        // Retourner un tableau vide si la table vient d'être créée
+        return res.json([]);
+      } catch (createError) {
+        console.error('Erreur lors de la création de la table:', createError);
+        // Si la création échoue, retourner un tableau vide plutôt qu'une erreur
+        return res.json([]);
+      }
+    }
+
+    // Si la table existe, récupérer les demandes
+    try {
+      const [requests] = await pool.execute(
+        `SELECT car.*, 
+                COALESCE(CONCAT(p.first_name, ' ', p.last_name), car.requester_name) as requester_name,
+                COALESCE(p.service, car.requester_service) as requester_service
+         FROM camera_access_requests car
+         LEFT JOIN profiles p ON car.requester_id = p.id
+         ORDER BY car.request_date DESC`
+      );
+      
+      res.json(requests.map(req => {
+        try {
+          return {
+            ...req,
+            request_date: req.request_date ? new Date(req.request_date).toISOString() : null,
+            access_start_date: req.access_start_date ? new Date(req.access_start_date).toISOString() : null,
+            access_end_date: req.access_end_date ? new Date(req.access_end_date).toISOString() : null,
+            hierarchical_authorization_date: req.hierarchical_authorization_date ? new Date(req.hierarchical_authorization_date).toISOString() : null,
+            created_at: req.created_at ? new Date(req.created_at).toISOString() : null,
+            updated_at: req.updated_at ? new Date(req.updated_at).toISOString() : null,
+          };
+        } catch (dateError) {
+          console.error('Erreur lors de la conversion de date:', dateError, req);
+          return req; // Retourner l'objet tel quel si la conversion échoue
+        }
+      }));
+    } catch (queryError) {
+      // Si la table n'existe pas (ER_NO_SUCH_TABLE), retourner un tableau vide
+      if (queryError.code === 'ER_NO_SUCH_TABLE' || queryError.message?.includes("doesn't exist")) {
+        console.log('Table camera_access_requests n\'existe pas, retour d\'un tableau vide');
+        return res.json([]);
+      }
+      throw queryError; // Relancer l'erreur si ce n'est pas une erreur de table manquante
+    }
+  } catch (error) {
+    console.error('Erreur lors de la récupération des demandes d\'accès aux caméras:', error);
+    console.error('Code erreur:', error.code);
+    console.error('Message:', error.message);
+    console.error('SQL Message:', error.sqlMessage);
+    
+    // Si c'est une erreur de table manquante, retourner un tableau vide
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.message?.includes("doesn't exist")) {
+      return res.json([]);
+    }
+    
+    res.status(500).json({ 
+      error: 'Erreur serveur', 
+      details: error.message,
+      code: error.code 
+    });
+  }
+});
+
+app.get('/api/camera-access-requests/:id', authenticateToken, async (req, res) => {
+  try {
+    const [requests] = await pool.execute(
+      `SELECT car.*, 
+              COALESCE(CONCAT(p.first_name, ' ', p.last_name), car.requester_name) as requester_name,
+              COALESCE(p.service, car.requester_service) as requester_service
+       FROM camera_access_requests car
+       LEFT JOIN profiles p ON car.requester_id = p.id
+       WHERE car.id = ?`,
+      [req.params.id]
+    );
+    if (requests.length === 0) {
+      return res.status(404).json({ error: 'Demande non trouvée' });
+    }
+    const req = requests[0];
+    res.json({
+      ...req,
+      request_date: req.request_date ? new Date(req.request_date).toISOString() : null,
+      access_start_date: req.access_start_date ? new Date(req.access_start_date).toISOString() : null,
+      access_end_date: req.access_end_date ? new Date(req.access_end_date).toISOString() : null,
+      hierarchical_authorization_date: req.hierarchical_authorization_date ? new Date(req.hierarchical_authorization_date).toISOString() : null,
+      created_at: req.created_at ? new Date(req.created_at).toISOString() : null,
+      updated_at: req.updated_at ? new Date(req.updated_at).toISOString() : null,
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération de la demande d\'accès:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.post('/api/camera-access-requests', authenticateToken, async (req, res) => {
+  try {
+    const {
+      requester_id,
+      access_reason,
+      access_start_date,
+      access_end_date,
+      access_start_time,
+      access_end_time,
+      camera_zones,
+      hierarchical_authorization,
+      notes
+    } = req.body;
+
+    if (!requester_id || !access_reason || !access_start_date || !access_end_date) {
+      return res.status(400).json({ error: 'Champs obligatoires manquants' });
+    }
+
+    // Récupérer les informations du demandeur
+    const [profiles] = await pool.execute(
+      'SELECT first_name, last_name, service FROM profiles WHERE id = ?',
+      [requester_id]
+    );
+
+    if (profiles.length === 0) {
+      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    }
+
+    const profile = profiles[0];
+    const requester_name = `${profile.first_name} ${profile.last_name}`;
+    const requester_service = profile.service || null;
+
+    const id = uuidv4();
+    const request_date = formatDateTime(new Date());
+
+    await pool.execute(
+      `INSERT INTO camera_access_requests (
+        id, requester_id, requester_name, requester_service, request_date,
+        access_reason, access_start_date, access_end_date, access_start_time, access_end_time,
+        camera_zones, hierarchical_authorization, notes, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'en_attente')`,
+      [
+        id, requester_id, requester_name, requester_service, request_date,
+        access_reason, access_start_date, access_end_date, access_start_time || null, access_end_time || null,
+        camera_zones || null, hierarchical_authorization || null, notes || null
+      ]
+    );
+
+    const [newRequest] = await pool.execute(
+      'SELECT * FROM camera_access_requests WHERE id = ?',
+      [id]
+    );
+
+    res.status(201).json({
+      ...newRequest[0],
+      request_date: newRequest[0].request_date ? new Date(newRequest[0].request_date).toISOString() : null,
+      access_start_date: newRequest[0].access_start_date ? new Date(newRequest[0].access_start_date).toISOString() : null,
+      access_end_date: newRequest[0].access_end_date ? new Date(newRequest[0].access_end_date).toISOString() : null,
+      created_at: newRequest[0].created_at ? new Date(newRequest[0].created_at).toISOString() : null,
+      updated_at: newRequest[0].updated_at ? new Date(newRequest[0].updated_at).toISOString() : null,
+    });
+  } catch (error) {
+    console.error('Erreur lors de la création de la demande d\'accès:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.put('/api/camera-access-requests/:id', authenticateToken, async (req, res) => {
+  try {
+    const {
+      status,
+      hierarchical_authorization,
+      hierarchical_authorization_date,
+      notes
+    } = req.body;
+
+    const updates = [];
+    const values = [];
+
+    if (status !== undefined) {
+      updates.push('status = ?');
+      values.push(status);
+    }
+    if (hierarchical_authorization !== undefined) {
+      updates.push('hierarchical_authorization = ?');
+      values.push(hierarchical_authorization || null);
+    }
+    if (hierarchical_authorization_date !== undefined) {
+      updates.push('hierarchical_authorization_date = ?');
+      values.push(hierarchical_authorization_date ? formatDateTime(new Date(hierarchical_authorization_date)) : null);
+    }
+    if (notes !== undefined) {
+      updates.push('notes = ?');
+      values.push(notes || null);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Aucune modification à effectuer' });
+    }
+
+    values.push(req.params.id);
+
+    await pool.execute(
+      `UPDATE camera_access_requests SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    const [updatedRequest] = await pool.execute(
+      'SELECT * FROM camera_access_requests WHERE id = ?',
+      [req.params.id]
+    );
+
+    if (updatedRequest.length === 0) {
+      return res.status(404).json({ error: 'Demande non trouvée' });
+    }
+
+    res.json({
+      ...updatedRequest[0],
+      request_date: updatedRequest[0].request_date ? new Date(updatedRequest[0].request_date).toISOString() : null,
+      access_start_date: updatedRequest[0].access_start_date ? new Date(updatedRequest[0].access_start_date).toISOString() : null,
+      access_end_date: updatedRequest[0].access_end_date ? new Date(updatedRequest[0].access_end_date).toISOString() : null,
+      hierarchical_authorization_date: updatedRequest[0].hierarchical_authorization_date ? new Date(updatedRequest[0].hierarchical_authorization_date).toISOString() : null,
+      created_at: updatedRequest[0].created_at ? new Date(updatedRequest[0].created_at).toISOString() : null,
+      updated_at: updatedRequest[0].updated_at ? new Date(updatedRequest[0].updated_at).toISOString() : null,
+    });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour de la demande d\'accès:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.delete('/api/camera-access-requests/:id', authenticateToken, async (req, res) => {
+  try {
+    const [result] = await pool.execute('DELETE FROM camera_access_requests WHERE id = ?', [req.params.id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Demande non trouvée' });
+    }
+    res.json({ message: 'Demande supprimée avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression de la demande:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 // Routes pour les salles
 app.get('/api/rooms', authenticateToken, async (req, res) => {
   try {
@@ -1071,12 +1692,69 @@ app.get('/api/planned-tasks', authenticateToken, async (req, res) => {
 
 app.post('/api/planned-tasks', authenticateToken, async (req, res) => {
   try {
-    // Seul le superviseur QHSE peut créer des tâches planifiées
-    if (req.user.role !== 'superviseur_qhse' && req.user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Seul le superviseur QHSE peut créer des tâches planifiées' });
+    const { title, description, assigned_to, due_date, assignee_name } = req.body;
+    
+    console.log('📋 Création de tâche planifiée:', {
+      user_id: req.user.id,
+      user_role: req.user.role,
+      assigned_to: assigned_to,
+      title: title
+    });
+    
+    // Vérifier les permissions : superviseur QHSE et superadmin peuvent créer pour n'importe qui
+    // Les techniciens (biomedical, technicien_polyvalent) peuvent créer des tâches uniquement pour eux-mêmes
+    const rawRole = req.user.role || '';
+    const userRole = typeof rawRole === 'string' ? rawRole.toLowerCase().trim() : String(rawRole).toLowerCase().trim();
+    const allowedTechnicianRoles = ['biomedical', 'technicien_polyvalent', 'technicien_biomedical', 'technicien'];
+    const allowedSupervisorRoles = ['superviseur_qhse', 'superadmin', 'superviseur_technicien'];
+    
+    console.log('🔍 Vérification des permissions:', {
+      raw_role: rawRole,
+      normalized_role: userRole,
+      user_id: req.user.id,
+      assigned_to: assigned_to,
+      user_object: JSON.stringify(req.user, null, 2)
+    });
+    
+    // Vérifier si c'est un superviseur
+    if (allowedSupervisorRoles.includes(userRole)) {
+      console.log('✅ Permission accordée: superviseur/superadmin');
+    } 
+    // Vérifier si c'est un technicien autorisé
+    else if (allowedTechnicianRoles.includes(userRole)) {
+      // Les techniciens ne peuvent créer des tâches que pour eux-mêmes
+      if (assigned_to !== req.user.id) {
+        console.warn('⚠️ Tentative de créer une tâche pour un autre utilisateur:', {
+          user_id: req.user.id,
+          assigned_to: assigned_to
+        });
+        return res.status(403).json({ error: 'Vous ne pouvez créer des tâches que pour vous-même' });
+      }
+      console.log('✅ Permission accordée: technicien crée une tâche pour lui-même');
+    } 
+    // Si le rôle contient "biomedical" ou "technicien", autoriser quand même (solution temporaire pour debug)
+    else if (userRole.includes('biomedical') || userRole.includes('technicien')) {
+      console.warn('⚠️ Rôle partiellement reconnu (contient "biomedical" ou "technicien"), autorisation accordée:', userRole);
+      if (assigned_to !== req.user.id) {
+        return res.status(403).json({ error: 'Vous ne pouvez créer des tâches que pour vous-même' });
+      }
+      console.log('✅ Permission accordée: technicien (détection partielle) crée une tâche pour lui-même');
+    }
+    // Sinon, refuser
+    else {
+      console.error('❌ Rôle non autorisé:', { 
+        raw_role: rawRole, 
+        normalized_role: userRole,
+        allowed_technician_roles: allowedTechnicianRoles,
+        allowed_supervisor_roles: allowedSupervisorRoles,
+        full_user: req.user
+      });
+      return res.status(403).json({ 
+        error: 'Vous n\'avez pas la permission de créer des tâches planifiées',
+        details: `Rôle détecté: "${rawRole}" (normalisé: "${userRole}")`
+      });
     }
 
-    const { title, description, assigned_to, due_date, assignee_name } = req.body;
     const id = uuidv4();
 
     await pool.execute(
@@ -2356,14 +3034,17 @@ app.post('/api/round-checklist-responses', authenticateToken, async (req, res) =
     
     await pool.execute(
       `INSERT INTO round_checklist_responses (
-        id, round_id, template_id, response_value, is_checked, observation, photo_urls
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        id, round_id, template_id, response_value, is_checked, equipment_status, equipment_name, service_name, observation, photo_urls
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         round_id,
         template_id,
         response_value || null,
         is_checked || false,
+        req.body.equipment_status || null,
+        req.body.equipment_name || null,
+        req.body.service_name || null,
         observation || null,
         JSON.stringify(photo_urls || [])
       ]
@@ -2394,13 +3075,16 @@ app.post('/api/round-checklist-responses', authenticateToken, async (req, res) =
 app.put('/api/round-checklist-responses/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { response_value, is_checked, observation, photo_urls } = req.body;
+    const { response_value, is_checked, equipment_status, equipment_name, service_name, observation, photo_urls } = req.body;
     
     const updates = [];
     const values = [];
     
     if (response_value !== undefined) { updates.push('response_value = ?'); values.push(response_value); }
     if (is_checked !== undefined) { updates.push('is_checked = ?'); values.push(is_checked); }
+    if (equipment_status !== undefined) { updates.push('equipment_status = ?'); values.push(equipment_status); }
+    if (equipment_name !== undefined) { updates.push('equipment_name = ?'); values.push(equipment_name); }
+    if (service_name !== undefined) { updates.push('service_name = ?'); values.push(service_name); }
     if (observation !== undefined) { updates.push('observation = ?'); values.push(observation); }
     if (photo_urls !== undefined) { updates.push('photo_urls = ?'); values.push(JSON.stringify(photo_urls)); }
     
@@ -2409,6 +3093,7 @@ app.put('/api/round-checklist-responses/:id', authenticateToken, async (req, res
     }
     
     values.push(id);
+    
     await pool.execute(
       `UPDATE round_checklist_responses SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       values
@@ -2428,6 +3113,28 @@ app.put('/api/round-checklist-responses/:id', authenticateToken, async (req, res
     });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de la réponse:', error);
+    console.error('Détails:', { 
+      code: error.code, 
+      message: error.message, 
+      sqlMessage: error.sqlMessage,
+      sql: error.sql 
+    });
+    
+    // Vérifier si c'est une erreur de colonne manquante
+    if (error.code === 'ER_BAD_FIELD_ERROR' || error.message?.includes('Unknown column') || error.sqlMessage?.includes('Unknown column')) {
+      console.error('⚠️ Colonne manquante dans round_checklist_responses.');
+      console.error('💡 Solution: Redémarrez le serveur backend pour déclencher la migration automatique, ou exécutez manuellement: database/migration_add_equipment_status.sql');
+      return res.status(500).json({ 
+        error: 'Colonne manquante dans la base de données. Veuillez redémarrer le serveur backend ou exécuter le script SQL: database/migration_add_equipment_status.sql',
+        details: error.sqlMessage || error.message
+      });
+    }
+    
+    // Erreur 400 si c'est une erreur de validation
+    if (error.code === 'ER_DUP_ENTRY' || error.message?.includes('Duplicate entry')) {
+      return res.status(400).json({ error: 'Données en conflit: ' + (error.sqlMessage || error.message) });
+    }
+    
     res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
   }
 });
@@ -3218,13 +3925,320 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Erreur serveur interne' });
 });
 
-// Démarrage du serveur
-app.listen(PORT, async () => {
-  console.log(`✅ Serveur API démarré sur le port ${PORT}`);
-  console.log(`📊 Base de données: ${dbConfig.database} sur ${dbConfig.host}:${dbConfig.port}`);
-  console.log(`📦 Modules QHSE chargés: GED, Audits, Formations, Déchets, Stérilisation, Risques`);
-  
-  // Test de connexion à la base de données
+async function columnExists(tableName, columnName) {
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS cnt
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [dbConfig.database, tableName, columnName]
+  );
+  return Number(rows?.[0]?.cnt || 0) > 0;
+}
+
+async function ensureDailyRoundsTechnicianNameColumn() {
+  try {
+    // Si la table n'existe pas encore, ne rien faire (le script SQL doit être exécuté)
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = ?
+         AND TABLE_NAME = 'daily_rounds'`,
+      [dbConfig.database]
+    );
+    const hasDailyRoundsTable = Number(tables?.[0]?.cnt || 0) > 0;
+    if (!hasDailyRoundsTable) return;
+
+    const hasColumn = await columnExists('daily_rounds', 'technician_name');
+    if (hasColumn) return;
+
+    console.log('🛠️  Migration auto: ajout de la colonne daily_rounds.technician_name ...');
+    await pool.execute(
+      `ALTER TABLE daily_rounds
+       ADD COLUMN technician_name VARCHAR(255) NULL
+       AFTER technician_id`
+    );
+
+    // Remplir les anciennes entrées si possible
+    try {
+      await pool.execute(
+        `UPDATE daily_rounds dr
+         JOIN profiles p ON dr.technician_id = p.id
+         SET dr.technician_name = CONCAT(p.first_name, ' ', p.last_name)
+         WHERE dr.technician_name IS NULL`
+      );
+    } catch (e) {
+      console.warn('⚠️  Migration auto: impossible de backfill technician_name depuis profiles:', e?.message || e);
+    }
+
+    console.log('✅ Migration auto terminée: daily_rounds.technician_name ajouté.');
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (technician_name):', error?.message || error);
+  }
+}
+
+async function ensureRoundChecklistResponsesEquipmentStatusColumn() {
+  try {
+    // Si la table n'existe pas encore, ne rien faire (le script SQL doit être exécuté)
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = ?
+         AND TABLE_NAME = 'round_checklist_responses'`,
+      [dbConfig.database]
+    );
+    const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    if (!hasTable) return;
+
+    console.log('🛠️  Migration auto: vérification des colonnes round_checklist_responses (equipment_status, equipment_name, service_name) ...');
+    
+    // Vérifier et ajouter equipment_status
+    const hasEquipmentStatus = await columnExists('round_checklist_responses', 'equipment_status');
+    if (!hasEquipmentStatus) {
+      console.log('  → Ajout de equipment_status...');
+      await pool.execute(
+        `ALTER TABLE round_checklist_responses
+         ADD COLUMN equipment_status ENUM('bon_état', 'défectueux') NULL
+         AFTER observation`
+      );
+    }
+
+    // Vérifier et ajouter equipment_name
+    const hasEquipmentName = await columnExists('round_checklist_responses', 'equipment_name');
+    if (!hasEquipmentName) {
+      console.log('  → Ajout de equipment_name...');
+      await pool.execute(
+        `ALTER TABLE round_checklist_responses
+         ADD COLUMN equipment_name VARCHAR(255) NULL
+         AFTER equipment_status`
+      );
+    }
+
+    // Vérifier et ajouter service_name
+    const hasServiceName = await columnExists('round_checklist_responses', 'service_name');
+    if (!hasServiceName) {
+      console.log('  → Ajout de service_name...');
+      await pool.execute(
+        `ALTER TABLE round_checklist_responses
+         ADD COLUMN service_name VARCHAR(255) NULL
+         AFTER equipment_name`
+      );
+    }
+
+    // Mettre à jour les réponses existantes avec is_checked = true pour avoir 'bon_état' par défaut
+    try {
+      await pool.execute(
+        `UPDATE round_checklist_responses
+         SET equipment_status = 'bon_état'
+         WHERE is_checked = TRUE AND equipment_status IS NULL`
+      );
+    } catch (e) {
+      console.warn('⚠️  Migration auto: impossible de backfill equipment_status:', e?.message || e);
+    }
+
+    console.log('✅ Migration auto terminée: round_checklist_responses (equipment_status, equipment_name, service_name) ajoutés.');
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (equipment_status):', error?.message || error);
+  }
+}
+
+async function ensureIncidentsPrestataireColumn() {
+  try {
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'incidents'`,
+      [dbConfig.database]
+    );
+    const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    if (!hasTable) return;
+
+    console.log('🛠️  Migration auto: vérification de la colonne prestataire dans incidents...');
+
+    const hasPrestataire = await columnExists('incidents', 'prestataire');
+    if (!hasPrestataire) {
+      console.log('  → Ajout de prestataire...');
+      await pool.execute(
+        `ALTER TABLE incidents ADD COLUMN prestataire VARCHAR(255) NULL AFTER assigned_to_name`
+      );
+      console.log('✅ Migration auto terminée: prestataire ajouté à incidents.');
+    } else {
+      console.log('✅ Colonne prestataire déjà présente dans incidents.');
+    }
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (prestataire):', error?.message || error);
+  }
+}
+
+async function ensureIncidentCommentsTable() {
+  try {
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'incident_comments'`,
+      [dbConfig.database]
+    );
+    const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    if (hasTable) {
+      console.log('✅ Table incident_comments déjà présente.');
+      return;
+    }
+
+    console.log('🛠️  Migration auto: création de la table incident_comments...');
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS incident_comments (
+        id VARCHAR(36) PRIMARY KEY,
+        incident_id VARCHAR(36) NOT NULL,
+        user_id VARCHAR(36) NOT NULL,
+        user_name VARCHAR(255) NOT NULL,
+        comment TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE,
+        INDEX idx_incident_id (incident_id),
+        INDEX idx_created_at (created_at)
+      )
+    `);
+
+    console.log('✅ Migration auto terminée: table incident_comments créée.');
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (incident_comments):', error?.message || error);
+  }
+}
+
+async function ensureAESTable() {
+  try {
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'aes'`,
+      [dbConfig.database]
+    );
+    const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    if (hasTable) {
+      console.log('✅ Table aes déjà présente.');
+      return;
+    }
+
+    console.log('🛠️  Migration auto: création de la table aes...');
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS aes (
+        id VARCHAR(36) PRIMARY KEY,
+        agent_nom VARCHAR(255) NOT NULL,
+        agent_prenom VARCHAR(255) NOT NULL,
+        agent_matricule VARCHAR(100),
+        agent_fonction VARCHAR(255),
+        agent_service VARCHAR(255),
+        agent_telephone VARCHAR(50),
+        agent_statut ENUM('Personnel', 'Stagiaire', 'Prestataire') NOT NULL,
+        date_aes DATE NOT NULL,
+        heure_aes TIME NOT NULL,
+        lieu_precis VARCHAR(500),
+        type_exposition ENUM('Piqure', 'Coupure', 'Projection muqueuse', 'Contact peau lésée') NOT NULL,
+        description_circonstances TEXT,
+        type_dispositif VARCHAR(255),
+        usage_unique BOOLEAN,
+        souille_sang BOOLEAN,
+        dans_sac_dasri BOOLEAN,
+        patient_source_identifiee BOOLEAN,
+        patient_code_identifiant VARCHAR(255),
+        consentement_prelevement BOOLEAN,
+        lavage_eau_savon BOOLEAN,
+        desinfection BOOLEAN,
+        rinçage_muqueuse BOOLEAN,
+        heure_premiers_soins TIME,
+        medecin_referent_aes VARCHAR(255),
+        examen_vih BOOLEAN DEFAULT FALSE,
+        examen_vhb BOOLEAN DEFAULT FALSE,
+        examen_vhc BOOLEAN DEFAULT FALSE,
+        traitement_arv_initie BOOLEAN,
+        date_debut_traitement DATE,
+        resultat_agent_vih BOOLEAN,
+        resultat_agent_vhb BOOLEAN,
+        resultat_agent_vhc BOOLEAN,
+        resultat_patient_vih BOOLEAN,
+        resultat_patient_vhb BOOLEAN,
+        resultat_patient_vhc BOOLEAN,
+        conduite_tenir TEXT,
+        orientation_infectiologue BOOLEAN,
+        orientation_psychologue BOOLEAN,
+        dates_suivi_prevues TEXT,
+        suivi_m1_date DATE,
+        suivi_m1_vih BOOLEAN,
+        suivi_m1_vhb BOOLEAN,
+        suivi_m1_vhc BOOLEAN,
+        suivi_m6_date DATE,
+        suivi_m6_vih BOOLEAN,
+        suivi_m6_vhb BOOLEAN,
+        suivi_m6_vhc BOOLEAN,
+        suivi_m9_date DATE,
+        suivi_m9_vih BOOLEAN,
+        suivi_m9_vhb BOOLEAN,
+        suivi_m9_vhc BOOLEAN,
+        dossier_cloture BOOLEAN DEFAULT FALSE,
+        date_cloture DATE,
+        nom_signature_qhse VARCHAR(255),
+        created_by VARCHAR(36) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE RESTRICT
+      )
+    `);
+
+    console.log('✅ Migration auto terminée: table aes créée.');
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (aes):', error?.message || error);
+  }
+}
+
+async function ensureCameraAccessRequestsTable() {
+  try {
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'camera_access_requests'`,
+      [dbConfig.database]
+    );
+    const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    if (hasTable) {
+      console.log('✅ Table camera_access_requests déjà présente.');
+      return;
+    }
+
+    console.log('🛠️  Migration auto: création de la table camera_access_requests...');
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS camera_access_requests (
+        id VARCHAR(36) PRIMARY KEY,
+        requester_id VARCHAR(36) NOT NULL,
+        requester_name VARCHAR(255),
+        requester_service VARCHAR(255),
+        requester_position VARCHAR(255),
+        request_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        access_reason TEXT NOT NULL,
+        access_start_date DATE NOT NULL,
+        access_end_date DATE NOT NULL,
+        access_start_time TIME,
+        access_end_time TIME,
+        camera_zones TEXT,
+        hierarchical_authorization VARCHAR(255),
+        hierarchical_authorization_date DATETIME,
+        status ENUM('en_attente', 'approuve', 'refuse', 'annule') NOT NULL DEFAULT 'en_attente',
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_requester_id (requester_id),
+        INDEX idx_status (status),
+        INDEX idx_request_date (request_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    console.log('✅ Migration auto terminée: table camera_access_requests créée.');
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (camera_access_requests):', error?.message || error);
+  }
+}
+
+async function startServer() {
+  console.log('🔄 Initialisation du serveur...');
+
+  // Test de connexion + migrations légères
   try {
     const [result] = await pool.execute('SELECT COUNT(*) as count FROM profiles');
     console.log(`✅ Connexion MySQL réussie! ${result[0].count} utilisateur(s) trouvé(s)`);
@@ -3232,6 +4246,22 @@ app.listen(PORT, async () => {
     console.error(`❌ Erreur de connexion à MySQL: ${error.message}`);
     console.error('💡 Vérifiez votre configuration dans backend/.env');
   }
-});
+
+  await ensureDailyRoundsTechnicianNameColumn();
+  await ensureRoundChecklistResponsesEquipmentStatusColumn();
+  await ensureIncidentsPrestataireColumn();
+  await ensureIncidentCommentsTable();
+  await ensureAESTable();
+  await ensureCameraAccessRequestsTable();
+
+  // Démarrage du serveur
+  app.listen(PORT, () => {
+    console.log(`✅ Serveur API démarré sur le port ${PORT}`);
+    console.log(`📊 Base de données: ${dbConfig.database} sur ${dbConfig.host}:${dbConfig.port}`);
+    console.log(`📦 Modules QHSE chargés: GED, Audits, Formations, Déchets, Stérilisation, Risques`);
+  });
+}
+
+startServer();
 
 

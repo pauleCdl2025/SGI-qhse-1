@@ -21,6 +21,7 @@ interface CreateTicketDialogProps {
     deadline: Date;
   }) => void;
   users: Users;
+  currentUserRole?: UserRole; // Rôle de l'utilisateur qui crée le ticket
 }
 
 const getServiceFromRole = (role: UserRole): IncidentService | null => {
@@ -31,12 +32,14 @@ const getServiceFromRole = (role: UserRole): IncidentService | null => {
       return 'technique';
     case 'agent_entretien':
       return 'entretien';
+    case 'agent_securite':
+      return 'securite';
     default:
       return null;
   }
 };
 
-export const CreateTicketDialog = ({ onCreateTicket, users }: CreateTicketDialogProps) => {
+export const CreateTicketDialog = ({ onCreateTicket, users, currentUserRole }: CreateTicketDialogProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [type, setType] = useState<IncidentType>('autre');
   const [description, setDescription] = useState('');
@@ -48,7 +51,16 @@ export const CreateTicketDialog = ({ onCreateTicket, users }: CreateTicketDialog
   const [maintenanceAssignee, setMaintenanceAssignee] = useState<string>('');
 
   // Rôles autorisés pour l'assignation directe
-  const allowedRoles: UserRole[] = ['technicien', 'technicien_polyvalent', 'agent_entretien'];
+  // Le Superviseur QHSE et l'assistante QHSE ne peuvent plus assigner aux agents d'entretien
+  // mais ils peuvent aussi assigner aux agents de sécurité
+  const allowedRoles: UserRole[] = useMemo(() => {
+    const baseRoles: UserRole[] = ['technicien', 'technicien_polyvalent', 'agent_entretien', 'agent_securite'];
+    if (currentUserRole === 'superviseur_qhse' || currentUserRole === 'assistante_qhse') {
+      // Exclure les agents d'entretien pour le Superviseur QHSE et l'assistante QHSE
+      return baseRoles.filter(role => role !== 'agent_entretien');
+    }
+    return baseRoles;
+  }, [currentUserRole]);
 
   const customUserDisplayNames: Record<string, string> = {
     technicien_polyvalent: 'Joachim',
@@ -83,6 +95,11 @@ export const CreateTicketDialog = ({ onCreateTicket, users }: CreateTicketDialog
   const handleSubmit = () => {
     if (!type || !description || !lieu || !priority || !deadlineHours) {
       showError("Veuillez remplir tous les champs obligatoires.");
+      return;
+    }
+
+    if (description.trim().length < 10) {
+      showError("La description doit contenir au moins 10 caractères.");
       return;
     }
 
@@ -139,6 +156,7 @@ export const CreateTicketDialog = ({ onCreateTicket, users }: CreateTicketDialog
     technicien: 'Technicien Biomédical',
     technicien_polyvalent: 'Technicien Polyvalent',
     agent_entretien: 'Agent d\'Entretien',
+    agent_securite: 'Agent de Sécurité',
   };
 
   const getRoleLabel = (role: UserRole) => roleLabels[role] || role;
@@ -157,7 +175,7 @@ export const CreateTicketDialog = ({ onCreateTicket, users }: CreateTicketDialog
             Créer un Ticket Directement
           </DialogTitle>
           <DialogDescription>
-            Créez un ticket et assignez-le directement à un technicien biomédical, technicien polyvalent ou agent d'entretien.
+            Créez un ticket et assignez-le directement à un technicien biomédical, technicien polyvalent ou agent de sécurité.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
@@ -168,18 +186,21 @@ export const CreateTicketDialog = ({ onCreateTicket, users }: CreateTicketDialog
                 <SelectValue placeholder="Sélectionner un type" />
               </SelectTrigger>
               <SelectContent>
+                {/* Incidents pour technicien biomédical */}
+                <SelectItem value="equipement-medical">Équipement Médical</SelectItem>
+                <SelectItem value="maintenance-preventive">Maintenance Préventive</SelectItem>
+                {/* Incidents techniques pour technicien polyvalent */}
                 <SelectItem value="technique">Technique</SelectItem>
                 <SelectItem value="electrique">Électrique</SelectItem>
                 <SelectItem value="plomberie">Plomberie</SelectItem>
                 <SelectItem value="climatisation">Climatisation</SelectItem>
-                <SelectItem value="equipement-medical">Équipement Médical</SelectItem>
                 <SelectItem value="informatique">Informatique</SelectItem>
-                <SelectItem value="maintenance-preventive">Maintenance Préventive</SelectItem>
-                <SelectItem value="nettoyage">Nettoyage</SelectItem>
-                <SelectItem value="sanitaire">Sanitaire</SelectItem>
-                <SelectItem value="dechets">Déchets</SelectItem>
-                <SelectItem value="hygiene">Hygiène</SelectItem>
                 <SelectItem value="materiel">Matériel</SelectItem>
+                {/* Incidents de sécurité pour agent de sécurité */}
+                <SelectItem value="vol">Vol / Disparition</SelectItem>
+                <SelectItem value="agression">Agression</SelectItem>
+                <SelectItem value="intrusion">Intrusion</SelectItem>
+                {/* Fallback générique */}
                 <SelectItem value="autre">Autre</SelectItem>
               </SelectContent>
             </Select>
