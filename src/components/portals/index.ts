@@ -13,4 +13,5 @@ export { UserPortal } from './UserPortal';
 export { BiomedicalPortal } from './BiomedicalPortal';
 export { BuanderiePortal } from './BuanderiePortal';
 export { TechnicienPolyvalentPortal } from './TechnicienPolyvalentPortal';
+export { AdministrateurReseauPortal } from './AdministrateurReseauPortal';
 

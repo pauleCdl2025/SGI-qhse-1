@@ -398,8 +398,13 @@ app.post('/api/auth/signout', authenticateToken, (req, res) => {
   res.json({ message: 'Déconnexion réussie' });
 });
 
+// Changer son propre mot de passe (réservé au superadmin)
 app.put('/api/auth/password', authenticateToken, validatePasswordUpdate, async (req, res) => {
   try {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Seul le super administrateur peut modifier les mots de passe.' });
+    }
+
     const { password } = req.body;
     const passwordHash = await bcrypt.hash(password, 10);
 
@@ -411,6 +416,43 @@ app.put('/api/auth/password', authenticateToken, validatePasswordUpdate, async (
     res.json({ message: 'Mot de passe mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du mot de passe:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Route pour réinitialiser le mot de passe d'un utilisateur (réservé au superadmin)
+app.put('/api/auth/reset-password/:userId', authenticateToken, async (req, res) => {
+  try {
+    // Vérifier que l'utilisateur est un super administrateur
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Accès refusé. Seul le super administrateur peut réinitialiser les mots de passe.' });
+    }
+
+    const { password } = req.body;
+    const { userId } = req.params;
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères.' });
+    }
+
+    // Vérifier que l'utilisateur cible existe
+    const [users] = await pool.execute('SELECT id FROM profiles WHERE id = ?', [userId]);
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    }
+
+    // Hasher le nouveau mot de passe
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Mettre à jour le mot de passe
+    await pool.execute(
+      'UPDATE profiles SET password_hash = ? WHERE id = ?',
+      [passwordHash, userId]
+    );
+
+    res.json({ success: true, message: 'Mot de passe réinitialisé avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la réinitialisation du mot de passe:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -786,6 +828,69 @@ app.post('/api/incidents/upload-images', authenticateToken, upload.array('images
   } catch (error) {
     console.error('Erreur lors de l\'upload des images:', error);
     res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Configuration Multer pour l'upload d'images de déchets médicaux
+const wasteStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(uploadsDir, 'waste_photos');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${uuidv4()}${ext}`);
+  }
+});
+
+const uploadWaste = multer({ 
+  storage: wasteStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Seuls les fichiers image sont autorisés'));
+    }
+  }
+});
+
+// Upload d'images pour les déchets médicaux
+app.post('/api/medical-waste/upload-images', authenticateToken, (req, res, next) => {
+  console.log('📸 Upload d\'images de déchets médicaux - Fichiers reçus:', req.files?.length || 0);
+  uploadWaste.array('images', 10)(req, res, (err) => {
+    if (err) {
+      console.error('❌ Erreur Multer lors de l\'upload des images de déchets:', err);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'Fichier trop volumineux (max 10MB)' });
+      }
+      if (err.message && err.message.includes('image')) {
+        return res.status(400).json({ error: 'Seuls les fichiers image sont autorisés' });
+      }
+      return res.status(400).json({ error: 'Erreur lors de l\'upload: ' + err.message });
+    }
+    next();
+  });
+}, (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      console.warn('⚠️ Aucun fichier reçu pour l\'upload de déchets médicaux');
+      return res.status(400).json({ error: 'Aucun fichier fourni' });
+    }
+    
+    console.log(`✅ ${req.files.length} fichier(s) reçu(s) pour l'upload de déchets médicaux`);
+    const urls = req.files.map(file => {
+      const url = `${process.env.UPLOAD_BASE_URL || 'http://localhost:3001/uploads'}/waste_photos/${file.filename}`;
+      console.log(`  - Fichier sauvegardé: ${file.filename} -> ${url}`);
+      return url;
+    });
+    res.json({ urls });
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'upload des images de déchets:', error);
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
   }
 });
 
@@ -1323,8 +1428,8 @@ app.get('/api/camera-access-requests', authenticateToken, async (req, res) => {
     try {
       const [requests] = await pool.execute(
         `SELECT car.*, 
-                COALESCE(CONCAT(p.first_name, ' ', p.last_name), car.requester_name) as requester_name,
-                COALESCE(p.service, car.requester_service) as requester_service
+                COALESCE(car.requester_name, CONCAT(p.first_name, ' ', p.last_name)) as requester_name,
+                COALESCE(car.requester_service, p.service) as requester_service
          FROM camera_access_requests car
          LEFT JOIN profiles p ON car.requester_id = p.id
          ORDER BY car.request_date DESC`
@@ -1338,6 +1443,7 @@ app.get('/api/camera-access-requests', authenticateToken, async (req, res) => {
             access_start_date: req.access_start_date ? new Date(req.access_start_date).toISOString() : null,
             access_end_date: req.access_end_date ? new Date(req.access_end_date).toISOString() : null,
             hierarchical_authorization_date: req.hierarchical_authorization_date ? new Date(req.hierarchical_authorization_date).toISOString() : null,
+            qhse_validation_date: req.qhse_validation_date ? new Date(req.qhse_validation_date).toISOString() : null,
             created_at: req.created_at ? new Date(req.created_at).toISOString() : null,
             updated_at: req.updated_at ? new Date(req.updated_at).toISOString() : null,
           };
@@ -1377,8 +1483,8 @@ app.get('/api/camera-access-requests/:id', authenticateToken, async (req, res) =
   try {
     const [requests] = await pool.execute(
       `SELECT car.*, 
-              COALESCE(CONCAT(p.first_name, ' ', p.last_name), car.requester_name) as requester_name,
-              COALESCE(p.service, car.requester_service) as requester_service
+              COALESCE(car.requester_name, CONCAT(p.first_name, ' ', p.last_name)) as requester_name,
+              COALESCE(car.requester_service, p.service) as requester_service
        FROM camera_access_requests car
        LEFT JOIN profiles p ON car.requester_id = p.id
        WHERE car.id = ?`,
@@ -1394,6 +1500,7 @@ app.get('/api/camera-access-requests/:id', authenticateToken, async (req, res) =
       access_start_date: req.access_start_date ? new Date(req.access_start_date).toISOString() : null,
       access_end_date: req.access_end_date ? new Date(req.access_end_date).toISOString() : null,
       hierarchical_authorization_date: req.hierarchical_authorization_date ? new Date(req.hierarchical_authorization_date).toISOString() : null,
+      qhse_validation_date: req.qhse_validation_date ? new Date(req.qhse_validation_date).toISOString() : null,
       created_at: req.created_at ? new Date(req.created_at).toISOString() : null,
       updated_at: req.updated_at ? new Date(req.updated_at).toISOString() : null,
     });
@@ -1407,6 +1514,9 @@ app.post('/api/camera-access-requests', authenticateToken, async (req, res) => {
   try {
     const {
       requester_id,
+      requester_name,
+      requester_service,
+      request_date,
       access_reason,
       access_start_date,
       access_end_date,
@@ -1414,40 +1524,66 @@ app.post('/api/camera-access-requests', authenticateToken, async (req, res) => {
       access_end_time,
       camera_zones,
       hierarchical_authorization,
-      notes
+      notes,
+      qhse_validation,
+      qhse_validation_date,
+      requester_signature
     } = req.body;
 
     if (!requester_id || !access_reason || !access_start_date || !access_end_date) {
       return res.status(400).json({ error: 'Champs obligatoires manquants' });
     }
 
-    // Récupérer les informations du demandeur
-    const [profiles] = await pool.execute(
-      'SELECT first_name, last_name, service FROM profiles WHERE id = ?',
-      [requester_id]
-    );
+    // Utiliser les valeurs fournies (même si vides, elles doivent être remplies par le frontend)
+    // Si elles ne sont pas fournies du tout (undefined), alors utiliser le profil comme fallback
+    let finalRequesterName = requester_name;
+    let finalRequesterService = requester_service;
+    
+    // Seulement utiliser le profil si les valeurs ne sont pas du tout fournies (undefined)
+    // Si elles sont des chaînes vides, c'est une erreur de validation côté frontend
+    if (finalRequesterName === undefined || finalRequesterService === undefined) {
+      const [profiles] = await pool.execute(
+        'SELECT first_name, last_name, service FROM profiles WHERE id = ?',
+        [requester_id]
+      );
 
-    if (profiles.length === 0) {
-      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+      if (profiles.length === 0) {
+        return res.status(404).json({ error: 'Utilisateur non trouvé' });
+      }
+
+      const profile = profiles[0];
+      if (finalRequesterName === undefined) {
+        finalRequesterName = `${profile.first_name} ${profile.last_name}`;
+      }
+      if (finalRequesterService === undefined) {
+        finalRequesterService = profile.service || null;
+      }
+    }
+    
+    // Validation : les champs doivent être remplis
+    if (!finalRequesterName || !finalRequesterName.trim()) {
+      return res.status(400).json({ error: 'Le nom du demandeur est obligatoire' });
+    }
+    if (!finalRequesterService || !finalRequesterService.trim()) {
+      return res.status(400).json({ error: 'Le service/département est obligatoire' });
     }
 
-    const profile = profiles[0];
-    const requester_name = `${profile.first_name} ${profile.last_name}`;
-    const requester_service = profile.service || null;
-
     const id = uuidv4();
-    const request_date = formatDateTime(new Date());
+    // Utiliser l'heure actuelle pour la date de demande (moment de la soumission)
+    const now = new Date();
+    const finalRequestDate = formatDateTime(now);
 
     await pool.execute(
       `INSERT INTO camera_access_requests (
         id, requester_id, requester_name, requester_service, request_date,
         access_reason, access_start_date, access_end_date, access_start_time, access_end_time,
-        camera_zones, hierarchical_authorization, notes, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'en_attente')`,
+        camera_zones, hierarchical_authorization, notes, qhse_validation, qhse_validation_date, requester_signature, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'en_attente')`,
       [
-        id, requester_id, requester_name, requester_service, request_date,
+        id, requester_id, finalRequesterName, finalRequesterService, finalRequestDate,
         access_reason, access_start_date, access_end_date, access_start_time || null, access_end_time || null,
-        camera_zones || null, hierarchical_authorization || null, notes || null
+        camera_zones || null, hierarchical_authorization || null, notes || null,
+        qhse_validation || null, qhse_validation_date || null, requester_signature || null
       ]
     );
 
@@ -1461,6 +1597,7 @@ app.post('/api/camera-access-requests', authenticateToken, async (req, res) => {
       request_date: newRequest[0].request_date ? new Date(newRequest[0].request_date).toISOString() : null,
       access_start_date: newRequest[0].access_start_date ? new Date(newRequest[0].access_start_date).toISOString() : null,
       access_end_date: newRequest[0].access_end_date ? new Date(newRequest[0].access_end_date).toISOString() : null,
+      qhse_validation_date: newRequest[0].qhse_validation_date ? new Date(newRequest[0].qhse_validation_date).toISOString() : null,
       created_at: newRequest[0].created_at ? new Date(newRequest[0].created_at).toISOString() : null,
       updated_at: newRequest[0].updated_at ? new Date(newRequest[0].updated_at).toISOString() : null,
     });
@@ -1525,6 +1662,7 @@ app.put('/api/camera-access-requests/:id', authenticateToken, async (req, res) =
       access_start_date: updatedRequest[0].access_start_date ? new Date(updatedRequest[0].access_start_date).toISOString() : null,
       access_end_date: updatedRequest[0].access_end_date ? new Date(updatedRequest[0].access_end_date).toISOString() : null,
       hierarchical_authorization_date: updatedRequest[0].hierarchical_authorization_date ? new Date(updatedRequest[0].hierarchical_authorization_date).toISOString() : null,
+      qhse_validation_date: updatedRequest[0].qhse_validation_date ? new Date(updatedRequest[0].qhse_validation_date).toISOString() : null,
       created_at: updatedRequest[0].created_at ? new Date(updatedRequest[0].created_at).toISOString() : null,
       updated_at: updatedRequest[0].updated_at ? new Date(updatedRequest[0].updated_at).toISOString() : null,
     });
@@ -1797,7 +1935,10 @@ app.get('/api/medical-waste', authenticateToken, async (req, res) => {
     const [waste] = await pool.execute(
       'SELECT * FROM medical_waste ORDER BY created_at DESC'
     );
-    res.json(waste);
+    res.json(waste.map(w => ({
+      ...w,
+      photo_urls: w.photo_urls ? (typeof w.photo_urls === 'string' ? JSON.parse(w.photo_urls) : w.photo_urls) : []
+    })));
   } catch (error) {
     console.error('Erreur lors de la récupération des déchets médicaux:', error.message || error);
     // Si la table n'existe pas, retourner un message plus explicite
@@ -1820,7 +1961,8 @@ app.post('/api/medical-waste', authenticateToken, async (req, res) => {
       producer_service,
       waste_code,
       tracking_number,
-      notes
+      notes,
+      photo_urls
     } = req.body;
     
     const id = uuidv4();
@@ -1829,8 +1971,8 @@ app.post('/api/medical-waste', authenticateToken, async (req, res) => {
     await pool.execute(
       `INSERT INTO medical_waste (
         id, waste_type, category, quantity, unit, collection_date, collection_location,
-        producer_service, waste_code, tracking_number, status, registered_by, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'collecté', ?, ?)`,
+        producer_service, waste_code, tracking_number, status, registered_by, notes, photo_urls
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'collecté', ?, ?, ?)`,
       [
         id,
         waste_type,
@@ -1843,7 +1985,8 @@ app.post('/api/medical-waste', authenticateToken, async (req, res) => {
         waste_code || null,
         trackingNumber,
         req.user.id,
-        notes || null
+        notes || null,
+        photo_urls ? JSON.stringify(photo_urls) : null
       ]
     );
 
@@ -1966,7 +2109,10 @@ app.post('/api/trainings', authenticateToken, async (req, res) => {
       planned_date,
       max_participants,
       certificate_required,
-      validity_months
+      validity_months,
+      prestataire,
+      prestataire_note,
+      prestataire_evaluation
     } = req.body;
     
     const id = uuidv4();
@@ -1975,8 +2121,8 @@ app.post('/api/trainings', authenticateToken, async (req, res) => {
       `INSERT INTO trainings (
         id, title, category, description, trainer, training_type, duration_hours,
         location, planned_date, status, max_participants, certificate_required,
-        validity_months, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée', ?, ?, ?, ?)`,
+        validity_months, prestataire, prestataire_note, prestataire_evaluation, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée', ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         title,
@@ -1990,6 +2136,9 @@ app.post('/api/trainings', authenticateToken, async (req, res) => {
         max_participants || null,
         certificate_required || false,
         validity_months || null,
+        prestataire || null,
+        prestataire_note || null,
+        prestataire_evaluation || null,
         req.user.id
       ]
     );
@@ -2017,7 +2166,10 @@ app.put('/api/trainings/:id', authenticateToken, async (req, res) => {
       status,
       max_participants,
       certificate_required,
-      validity_months
+      validity_months,
+      prestataire,
+      prestataire_note,
+      prestataire_evaluation
     } = req.body;
 
     const updates = [];
@@ -2036,6 +2188,9 @@ app.put('/api/trainings/:id', authenticateToken, async (req, res) => {
     if (max_participants !== undefined) { updates.push('max_participants = ?'); values.push(max_participants); }
     if (certificate_required !== undefined) { updates.push('certificate_required = ?'); values.push(certificate_required); }
     if (validity_months !== undefined) { updates.push('validity_months = ?'); values.push(validity_months); }
+    if (prestataire !== undefined) { updates.push('prestataire = ?'); values.push(prestataire || null); }
+    if (prestataire_note !== undefined) { updates.push('prestataire_note = ?'); values.push(prestataire_note || null); }
+    if (prestataire_evaluation !== undefined) { updates.push('prestataire_evaluation = ?'); values.push(prestataire_evaluation || null); }
 
     if (updates.length === 0) {
       return res.status(400).json({ error: 'Aucune mise à jour fournie' });
@@ -2765,6 +2920,435 @@ app.delete('/api/audits/action-plans/:id', authenticateToken, async (req, res) =
     res.json({ message: 'Plan d\'action supprimé' });
   } catch (error) {
     console.error('Erreur lors de la suppression du plan d\'action:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// =====================================================
+// ROUTES POUR LA GESTION DES TRAVAUX
+// =====================================================
+
+// Récupérer tous les travaux
+app.get('/api/works', authenticateToken, async (req, res) => {
+  try {
+    const [works] = await pool.execute(
+      `SELECT w.*, 
+        p1.first_name as assigned_to_first_name, p1.last_name as assigned_to_last_name
+      FROM works w
+      LEFT JOIN profiles p1 ON w.assigned_to = p1.id
+      ORDER BY w.created_at DESC`
+    );
+    res.json(works.map(work => ({
+      ...work,
+      assigned_to_name: work.assigned_to_first_name && work.assigned_to_last_name 
+        ? `${work.assigned_to_first_name} ${work.assigned_to_last_name}` 
+        : null,
+      photo_urls: work.photo_urls ? (typeof work.photo_urls === 'string' ? JSON.parse(work.photo_urls) : work.photo_urls) : [],
+      planned_start_date: work.planned_start_date || null,
+      planned_end_date: work.planned_end_date || null,
+      actual_start_date: work.actual_start_date || null,
+      actual_end_date: work.actual_end_date || null,
+      created_at: work.created_at || null,
+      updated_at: work.updated_at || null,
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération des travaux:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table works non trouvée. Veuillez exécuter le script SQL: database/create_works_table.sql' });
+    }
+    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+  }
+});
+
+// Créer un nouveau travail
+app.post('/api/works', authenticateToken, async (req, res) => {
+  try {
+    const {
+      title, description, work_type, location, priority, status,
+      assigned_to, planned_start_date, planned_end_date,
+      estimated_cost, supplier_name, supplier_contact, notes
+    } = req.body;
+    
+    const id = uuidv4();
+    
+    // Récupérer le nom de l'utilisateur assigné si fourni
+    let assigned_to_name = null;
+    if (assigned_to) {
+      const [users] = await pool.execute(
+        'SELECT first_name, last_name FROM profiles WHERE id = ?',
+        [assigned_to]
+      );
+      if (users.length > 0 && users[0].first_name && users[0].last_name) {
+        assigned_to_name = `${users[0].first_name} ${users[0].last_name}`;
+      }
+    }
+    
+    await pool.execute(
+      `INSERT INTO works (
+        id, title, description, work_type, location, priority, status,
+        assigned_to, assigned_to_name, planned_start_date, planned_end_date,
+        estimated_cost, supplier_name, supplier_contact, notes, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, title, description, work_type || 'maintenance',
+        location || null, priority || 'moyenne', status || 'planifié',
+        assigned_to || null, assigned_to_name,
+        planned_start_date || null, planned_end_date || null,
+        estimated_cost || null, supplier_name || null, supplier_contact || null,
+        notes || null, req.user.id
+      ]
+    );
+    
+    // Récupérer le travail créé
+    const [newWork] = await pool.execute(
+      `SELECT w.*, 
+        p1.first_name as assigned_to_first_name, p1.last_name as assigned_to_last_name
+      FROM works w
+      LEFT JOIN profiles p1 ON w.assigned_to = p1.id
+      WHERE w.id = ?`,
+      [id]
+    );
+    
+    const work = newWork[0];
+    res.json({
+      ...work,
+      assigned_to_name: work.assigned_to_first_name && work.assigned_to_last_name 
+        ? `${work.assigned_to_first_name} ${work.assigned_to_last_name}` 
+        : null,
+      photo_urls: work.photo_urls ? (typeof work.photo_urls === 'string' ? JSON.parse(work.photo_urls) : work.photo_urls) : [],
+    });
+  } catch (error) {
+    console.error('Erreur lors de la création du travail:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table works non trouvée. Veuillez exécuter le script SQL: database/create_works_table.sql' });
+    }
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Mettre à jour un travail
+app.put('/api/works/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title, description, work_type, location, priority, status,
+      assigned_to, planned_start_date, planned_end_date,
+      actual_start_date, actual_end_date,
+      estimated_cost, actual_cost, supplier_name, supplier_contact, notes
+    } = req.body;
+    
+    const updates = [];
+    const values = [];
+    
+    if (title !== undefined) { updates.push('title = ?'); values.push(title); }
+    if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+    if (work_type !== undefined) { updates.push('work_type = ?'); values.push(work_type); }
+    if (location !== undefined) { updates.push('location = ?'); values.push(location); }
+    if (priority !== undefined) { updates.push('priority = ?'); values.push(priority); }
+    if (status !== undefined) { 
+      updates.push('status = ?'); 
+      values.push(status);
+      // Si le statut passe à "en_cours" et actual_start_date n'est pas défini, le définir
+      if (status === 'en_cours' && !actual_start_date) {
+        updates.push('actual_start_date = CURRENT_DATE');
+      }
+      // Si le statut passe à "terminé" et actual_end_date n'est pas défini, le définir
+      if (status === 'terminé' && !actual_end_date) {
+        updates.push('actual_end_date = CURRENT_DATE');
+      }
+    }
+    if (assigned_to !== undefined) {
+      updates.push('assigned_to = ?');
+      values.push(assigned_to || null);
+      // Mettre à jour le nom de l'utilisateur assigné
+      if (assigned_to) {
+        const [users] = await pool.execute(
+          'SELECT first_name, last_name FROM profiles WHERE id = ?',
+          [assigned_to]
+        );
+        if (users.length > 0 && users[0].first_name && users[0].last_name) {
+          updates.push('assigned_to_name = ?');
+          values.push(`${users[0].first_name} ${users[0].last_name}`);
+        } else {
+          updates.push('assigned_to_name = NULL');
+        }
+      } else {
+        updates.push('assigned_to_name = NULL');
+      }
+    }
+    if (planned_start_date !== undefined) { updates.push('planned_start_date = ?'); values.push(planned_start_date || null); }
+    if (planned_end_date !== undefined) { updates.push('planned_end_date = ?'); values.push(planned_end_date || null); }
+    if (actual_start_date !== undefined) { updates.push('actual_start_date = ?'); values.push(actual_start_date || null); }
+    if (actual_end_date !== undefined) { updates.push('actual_end_date = ?'); values.push(actual_end_date || null); }
+    if (estimated_cost !== undefined) { updates.push('estimated_cost = ?'); values.push(estimated_cost || null); }
+    if (actual_cost !== undefined) { updates.push('actual_cost = ?'); values.push(actual_cost || null); }
+    if (supplier_name !== undefined) { updates.push('supplier_name = ?'); values.push(supplier_name || null); }
+    if (supplier_contact !== undefined) { updates.push('supplier_contact = ?'); values.push(supplier_contact || null); }
+    if (notes !== undefined) { updates.push('notes = ?'); values.push(notes || null); }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+    }
+    
+    values.push(id);
+    
+    await pool.execute(
+      `UPDATE works SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      values
+    );
+    
+    res.json({ message: 'Travail mis à jour' });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour du travail:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Supprimer un travail
+app.delete('/api/works/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM works WHERE id = ?', [id]);
+    res.json({ message: 'Travail supprimé' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression du travail:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// =====================================================
+// ROUTES POUR LA GESTION RÉSEAU
+// =====================================================
+
+// Matériel Réseau
+app.get('/api/network/equipment', authenticateToken, async (req, res) => {
+  try {
+    // Vérifier que la table existe, sinon la créer
+    try {
+      await ensureNetworkTables();
+    } catch (migrationError) {
+      console.error('Erreur lors de la migration des tables réseau:', migrationError);
+      // Continuer quand même, peut-être que les tables existent déjà
+    }
+    const [equipment] = await pool.execute('SELECT * FROM network_equipment ORDER BY created_at DESC');
+    res.json(equipment.map(eq => ({
+      ...eq,
+      installation_date: eq.installation_date || null,
+      warranty_expiry: eq.warranty_expiry || null,
+      created_at: eq.created_at || null,
+      updated_at: eq.updated_at || null,
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération du matériel:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table network_equipment non trouvée' });
+    }
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.post('/api/network/equipment', authenticateToken, async (req, res) => {
+  try {
+    const { name, type, brand, model, serial_number, ip_address, mac_address, location, status, installation_date, warranty_expiry, notes } = req.body;
+    const id = uuidv4();
+    await pool.execute(
+      `INSERT INTO network_equipment (id, name, type, brand, model, serial_number, ip_address, mac_address, location, status, installation_date, warranty_expiry, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, type, brand || null, model || null, serial_number || null, ip_address || null, mac_address || null, location || null, status, installation_date || null, warranty_expiry || null, notes || null, req.user.id]
+    );
+    const [newEquipment] = await pool.execute('SELECT * FROM network_equipment WHERE id = ?', [id]);
+    res.json(newEquipment[0]);
+  } catch (error) {
+    console.error('Erreur lors de la création:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.put('/api/network/equipment/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = [];
+    const values = [];
+    const fields = ['name', 'type', 'brand', 'model', 'serial_number', 'ip_address', 'mac_address', 'location', 'status', 'installation_date', 'warranty_expiry', 'notes'];
+    fields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updates.push(`${field} = ?`);
+        values.push(req.body[field] || null);
+      }
+    });
+    if (updates.length === 0) return res.status(400).json({ error: 'Aucune mise à jour' });
+    values.push(id);
+    await pool.execute(`UPDATE network_equipment SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+    const [updated] = await pool.execute('SELECT * FROM network_equipment WHERE id = ?', [id]);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.delete('/api/network/equipment/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM network_equipment WHERE id = ?', [id]);
+    res.json({ message: 'Équipement supprimé' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Abonnements Réseau
+app.get('/api/network/subscriptions', authenticateToken, async (req, res) => {
+  try {
+    // Vérifier que la table existe, sinon la créer
+    try {
+      await ensureNetworkTables();
+    } catch (migrationError) {
+      console.error('Erreur lors de la migration des tables réseau:', migrationError);
+      // Continuer quand même, peut-être que les tables existent déjà
+    }
+    const [subscriptions] = await pool.execute('SELECT * FROM network_subscriptions ORDER BY renewal_date DESC');
+    res.json(subscriptions.map(sub => ({
+      ...sub,
+      start_date: sub.start_date || null,
+      renewal_date: sub.renewal_date || null,
+      created_at: sub.created_at || null,
+      updated_at: sub.updated_at || null,
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération des abonnements:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table network_subscriptions non trouvée' });
+    }
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.post('/api/network/subscriptions', authenticateToken, async (req, res) => {
+  try {
+    const { service_name, provider, subscription_type, monthly_cost, start_date, renewal_date, contract_number, contact_person, contact_phone, contact_email, status, notes } = req.body;
+    const id = uuidv4();
+    await pool.execute(
+      `INSERT INTO network_subscriptions (id, service_name, provider, subscription_type, monthly_cost, start_date, renewal_date, contract_number, contact_person, contact_phone, contact_email, status, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, service_name, provider, subscription_type, monthly_cost || 0, start_date || null, renewal_date || null, contract_number || null, contact_person || null, contact_phone || null, contact_email || null, status, notes || null, req.user.id]
+    );
+    const [newSubscription] = await pool.execute('SELECT * FROM network_subscriptions WHERE id = ?', [id]);
+    res.json(newSubscription[0]);
+  } catch (error) {
+    console.error('Erreur lors de la création:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.put('/api/network/subscriptions/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = [];
+    const values = [];
+    const fields = ['service_name', 'provider', 'subscription_type', 'monthly_cost', 'start_date', 'renewal_date', 'contract_number', 'contact_person', 'contact_phone', 'contact_email', 'status', 'notes'];
+    fields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updates.push(`${field} = ?`);
+        values.push(req.body[field] || null);
+      }
+    });
+    if (updates.length === 0) return res.status(400).json({ error: 'Aucune mise à jour' });
+    values.push(id);
+    await pool.execute(`UPDATE network_subscriptions SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+    const [updated] = await pool.execute('SELECT * FROM network_subscriptions WHERE id = ?', [id]);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.delete('/api/network/subscriptions/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM network_subscriptions WHERE id = ?', [id]);
+    res.json({ message: 'Abonnement supprimé' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Inventaire Réseau
+app.get('/api/network/inventory', authenticateToken, async (req, res) => {
+  try {
+    // Vérifier que la table existe, sinon la créer
+    try {
+      await ensureNetworkTables();
+    } catch (migrationError) {
+      console.error('Erreur lors de la migration des tables réseau:', migrationError);
+      // Continuer quand même, peut-être que les tables existent déjà
+    }
+    const [inventory] = await pool.execute('SELECT * FROM network_inventory ORDER BY created_at DESC');
+    res.json(inventory.map(item => ({
+      ...item,
+      purchase_date: item.purchase_date || null,
+      created_at: item.created_at || null,
+      updated_at: item.updated_at || null,
+    })));
+  } catch (error) {
+    console.error('Erreur lors de la récupération de l\'inventaire:', error);
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
+      return res.status(500).json({ error: 'Table network_inventory non trouvée' });
+    }
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.post('/api/network/inventory', authenticateToken, async (req, res) => {
+  try {
+    const { item_name, category, brand, model, quantity, unit, location, supplier, purchase_date, purchase_cost, notes } = req.body;
+    const id = uuidv4();
+    await pool.execute(
+      `INSERT INTO network_inventory (id, item_name, category, brand, model, quantity, unit, location, supplier, purchase_date, purchase_cost, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, item_name, category, brand || null, model || null, quantity || 1, unit, location || null, supplier || null, purchase_date || null, purchase_cost || null, notes || null, req.user.id]
+    );
+    const [newItem] = await pool.execute('SELECT * FROM network_inventory WHERE id = ?', [id]);
+    res.json(newItem[0]);
+  } catch (error) {
+    console.error('Erreur lors de la création:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.put('/api/network/inventory/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = [];
+    const values = [];
+    const fields = ['item_name', 'category', 'brand', 'model', 'quantity', 'unit', 'location', 'supplier', 'purchase_date', 'purchase_cost', 'notes'];
+    fields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updates.push(`${field} = ?`);
+        values.push(req.body[field] || null);
+      }
+    });
+    if (updates.length === 0) return res.status(400).json({ error: 'Aucune mise à jour' });
+    values.push(id);
+    await pool.execute(`UPDATE network_inventory SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+    const [updated] = await pool.execute('SELECT * FROM network_inventory WHERE id = ?', [id]);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.delete('/api/network/inventory/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM network_inventory WHERE id = ?', [id]);
+    res.json({ message: 'Article supprimé' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -4112,14 +4696,11 @@ async function ensureAESTable() {
       [dbConfig.database]
     );
     const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
-    if (hasTable) {
-      console.log('✅ Table aes déjà présente.');
-      return;
-    }
+    
+    if (!hasTable) {
+      console.log('🛠️  Migration auto: création de la table aes...');
 
-    console.log('🛠️  Migration auto: création de la table aes...');
-
-    await pool.execute(`
+      await pool.execute(`
       CREATE TABLE IF NOT EXISTS aes (
         id VARCHAR(36) PRIMARY KEY,
         agent_nom VARCHAR(255) NOT NULL,
@@ -4184,6 +4765,62 @@ async function ensureAESTable() {
     `);
 
     console.log('✅ Migration auto terminée: table aes créée.');
+    } else {
+      console.log('✅ Table aes déjà présente.');
+      
+      // Vérifier et ajouter les colonnes manquantes pour le tableau de suivi
+      const [columns] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'aes'`,
+        [dbConfig.database]
+      );
+      const columnNames = columns.map(col => col.COLUMN_NAME);
+      
+      const newColumns = [
+        { name: 'numero_aes', def: 'INT NULL COMMENT "Numéro unique de l\'AES"' },
+        { name: 'port_epi', def: 'BOOLEAN DEFAULT FALSE COMMENT "Port des EPI"' },
+        { name: 'declaration_immediate', def: 'BOOLEAN DEFAULT FALSE COMMENT "Déclaration immédiate"' },
+        { name: 'date_declaration', def: 'DATE NULL COMMENT "Date de déclaration"' },
+        { name: 'prise_charge_immediate', def: 'BOOLEAN DEFAULT FALSE COMMENT "Prise en charge immédiate réalisée"' },
+        { name: 'inscription_sentimed', def: 'BOOLEAN DEFAULT FALSE COMMENT "Inscription sur SENTIMED"' },
+        { name: 'bon_examen_prescrit', def: 'BOOLEAN DEFAULT FALSE COMMENT "Bon d\'examen prescrit"' },
+        { name: 'matricule_sentimed', def: 'VARCHAR(100) NULL COMMENT "Matricule SENTIMED"' },
+        { name: 'date_prise_resultat', def: 'DATE NULL COMMENT "Date de prise de résultat"' },
+        { name: 'suivi_m3_date', def: 'DATE NULL COMMENT "Date de suivi M+3"' },
+        { name: 'suivi_m3_vhb', def: 'BOOLEAN NULL COMMENT "Résultat M+3 VHB"' },
+        { name: 'suivi_m3_vhc', def: 'BOOLEAN NULL COMMENT "Résultat M+3 VHC"' },
+        { name: 'observations', def: 'TEXT NULL COMMENT "Observations / Commentaires"' }
+      ];
+      
+      for (const col of newColumns) {
+        if (!columnNames.includes(col.name)) {
+          try {
+            await pool.execute(`ALTER TABLE aes ADD COLUMN ${col.name} ${col.def}`);
+            console.log(`✅ Colonne ${col.name} ajoutée à aes.`);
+          } catch (err) {
+            console.warn(`⚠️  Erreur lors de l'ajout de ${col.name}:`, err.message);
+          }
+        }
+      }
+      
+      // Mettre à jour numero_aes pour les enregistrements existants
+      try {
+        const [existing] = await pool.execute('SELECT COUNT(*) as cnt FROM aes WHERE numero_aes IS NULL');
+        if (existing[0].cnt > 0) {
+          // Utiliser une variable de session pour numéroter
+          await pool.execute('SET @row_number = 0');
+          await pool.execute(`
+            UPDATE aes 
+            SET numero_aes = (@row_number := @row_number + 1)
+            WHERE numero_aes IS NULL
+            ORDER BY created_at, date_aes
+          `);
+          console.log(`✅ Numéros AES mis à jour pour ${existing[0].cnt} enregistrement(s).`);
+        }
+      } catch (err) {
+        console.warn('⚠️  Erreur lors de la mise à jour des numéros AES:', err.message);
+      }
+    }
   } catch (error) {
     console.warn('⚠️  Migration auto ignorée (aes):', error?.message || error);
   }
@@ -4196,42 +4833,271 @@ async function ensureCameraAccessRequestsTable() {
       [dbConfig.database]
     );
     const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
-    if (hasTable) {
+    
+    if (!hasTable) {
+      console.log('🛠️  Migration auto: création de la table camera_access_requests...');
+
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS camera_access_requests (
+          id VARCHAR(36) PRIMARY KEY,
+          requester_id VARCHAR(36) NOT NULL,
+          requester_name VARCHAR(255),
+          requester_service VARCHAR(255),
+          requester_position VARCHAR(255),
+          request_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          access_reason TEXT NOT NULL,
+          access_start_date DATE NOT NULL,
+          access_end_date DATE NOT NULL,
+          access_start_time TIME,
+          access_end_time TIME,
+          camera_zones TEXT,
+          hierarchical_authorization VARCHAR(255),
+          hierarchical_authorization_date DATETIME,
+          status ENUM('en_attente', 'approuve', 'refuse', 'annule') NOT NULL DEFAULT 'en_attente',
+          notes TEXT,
+          qhse_validation VARCHAR(255),
+          qhse_validation_date DATETIME,
+          requester_signature VARCHAR(255),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_requester_id (requester_id),
+          INDEX idx_status (status),
+          INDEX idx_request_date (request_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      console.log('✅ Migration auto terminée: table camera_access_requests créée.');
+    } else {
       console.log('✅ Table camera_access_requests déjà présente.');
-      return;
+      
+      // Vérifier et ajouter les colonnes manquantes
+      const [columns] = await pool.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'camera_access_requests'`,
+        [dbConfig.database]
+      );
+      const columnNames = columns.map(col => col.COLUMN_NAME);
+      
+      if (!columnNames.includes('qhse_validation')) {
+        await pool.execute(
+          `ALTER TABLE camera_access_requests ADD COLUMN qhse_validation VARCHAR(255) NULL AFTER notes`
+        );
+        console.log('✅ Colonne qhse_validation ajoutée à camera_access_requests.');
+      }
+      
+      if (!columnNames.includes('qhse_validation_date')) {
+        await pool.execute(
+          `ALTER TABLE camera_access_requests ADD COLUMN qhse_validation_date DATETIME NULL AFTER qhse_validation`
+        );
+        console.log('✅ Colonne qhse_validation_date ajoutée à camera_access_requests.');
+      }
+      
+      if (!columnNames.includes('requester_signature')) {
+        await pool.execute(
+          `ALTER TABLE camera_access_requests ADD COLUMN requester_signature VARCHAR(255) NULL AFTER qhse_validation_date`
+        );
+        console.log('✅ Colonne requester_signature ajoutée à camera_access_requests.');
+      }
     }
-
-    console.log('🛠️  Migration auto: création de la table camera_access_requests...');
-
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS camera_access_requests (
-        id VARCHAR(36) PRIMARY KEY,
-        requester_id VARCHAR(36) NOT NULL,
-        requester_name VARCHAR(255),
-        requester_service VARCHAR(255),
-        requester_position VARCHAR(255),
-        request_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        access_reason TEXT NOT NULL,
-        access_start_date DATE NOT NULL,
-        access_end_date DATE NOT NULL,
-        access_start_time TIME,
-        access_end_time TIME,
-        camera_zones TEXT,
-        hierarchical_authorization VARCHAR(255),
-        hierarchical_authorization_date DATETIME,
-        status ENUM('en_attente', 'approuve', 'refuse', 'annule') NOT NULL DEFAULT 'en_attente',
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_requester_id (requester_id),
-        INDEX idx_status (status),
-        INDEX idx_request_date (request_date)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-
-    console.log('✅ Migration auto terminée: table camera_access_requests créée.');
   } catch (error) {
     console.warn('⚠️  Migration auto ignorée (camera_access_requests):', error?.message || error);
+  }
+}
+
+async function ensureWorksTable() {
+  try {
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'works'`,
+      [dbConfig.database]
+    );
+    const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    
+    if (!hasTable) {
+      console.log('🛠️  Migration auto: création de la table works...');
+
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS works (
+          id VARCHAR(36) PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          description TEXT NOT NULL,
+          work_type ENUM('maintenance', 'reparation', 'renovation', 'construction', 'amelioration', 'autre') NOT NULL DEFAULT 'maintenance',
+          location VARCHAR(255) NULL,
+          priority ENUM('faible', 'moyenne', 'haute', 'critique') DEFAULT 'moyenne',
+          status ENUM('planifié', 'en_cours', 'en_pause', 'terminé', 'annulé') DEFAULT 'planifié',
+          assigned_to VARCHAR(36) NULL,
+          assigned_to_name VARCHAR(255) NULL,
+          planned_start_date DATE NULL,
+          planned_end_date DATE NULL,
+          actual_start_date DATE NULL,
+          actual_end_date DATE NULL,
+          estimated_cost DECIMAL(10, 2) NULL,
+          actual_cost DECIMAL(10, 2) NULL,
+          supplier_name VARCHAR(255) NULL,
+          supplier_contact VARCHAR(255) NULL,
+          notes TEXT NULL,
+          photo_urls JSON DEFAULT NULL,
+          created_by VARCHAR(36) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (assigned_to) REFERENCES profiles(id) ON DELETE SET NULL,
+          FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE SET NULL,
+          INDEX idx_works_status (status),
+          INDEX idx_works_assigned_to (assigned_to),
+          INDEX idx_works_work_type (work_type),
+          INDEX idx_works_planned_start_date (planned_start_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      console.log('✅ Migration auto terminée: table works créée.');
+    } else {
+      console.log('✅ Table works déjà présente.');
+    }
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (works):', error?.message || error);
+  }
+}
+
+async function ensureNetworkTables() {
+  try {
+    // Table network_equipment
+    const [tables1] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'network_equipment'`,
+      [dbConfig.database]
+    );
+    if (Number(tables1?.[0]?.cnt || 0) === 0) {
+      console.log('🛠️  Migration auto: création de la table network_equipment...');
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS network_equipment (
+          id VARCHAR(36) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          type ENUM('routeur', 'switch', 'point_acces', 'serveur', 'firewall', 'autre') NOT NULL,
+          brand VARCHAR(255) NULL,
+          model VARCHAR(255) NULL,
+          serial_number VARCHAR(255) NULL,
+          ip_address VARCHAR(45) NULL,
+          mac_address VARCHAR(17) NULL,
+          location VARCHAR(255) NULL,
+          status ENUM('operationnel', 'en_maintenance', 'hors_service') DEFAULT 'operationnel',
+          installation_date DATE NULL,
+          warranty_expiry DATE NULL,
+          notes TEXT NULL,
+          created_by VARCHAR(36) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE RESTRICT,
+          INDEX idx_network_equipment_status (status),
+          INDEX idx_network_equipment_type (type)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      console.log('✅ Table network_equipment créée.');
+    }
+
+    // Table network_subscriptions
+    const [tables2] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'network_subscriptions'`,
+      [dbConfig.database]
+    );
+    if (Number(tables2?.[0]?.cnt || 0) === 0) {
+      console.log('🛠️  Migration auto: création de la table network_subscriptions...');
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS network_subscriptions (
+          id VARCHAR(36) PRIMARY KEY,
+          service_name VARCHAR(255) NOT NULL,
+          provider VARCHAR(255) NOT NULL,
+          subscription_type ENUM('internet', 'telephonie', 'cloud', 'securite', 'autre') NOT NULL,
+          monthly_cost DECIMAL(10, 2) DEFAULT 0,
+          start_date DATE NOT NULL,
+          renewal_date DATE NOT NULL,
+          contract_number VARCHAR(255) NULL,
+          contact_person VARCHAR(255) NULL,
+          contact_phone VARCHAR(50) NULL,
+          contact_email VARCHAR(255) NULL,
+          status ENUM('actif', 'suspendu', 'expire', 'resilie') DEFAULT 'actif',
+          notes TEXT NULL,
+          created_by VARCHAR(36) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE RESTRICT,
+          INDEX idx_network_subscriptions_status (status),
+          INDEX idx_network_subscriptions_renewal_date (renewal_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      console.log('✅ Table network_subscriptions créée.');
+    }
+
+    // Table network_inventory
+    const [tables3] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'network_inventory'`,
+      [dbConfig.database]
+    );
+    if (Number(tables3?.[0]?.cnt || 0) === 0) {
+      console.log('🛠️  Migration auto: création de la table network_inventory...');
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS network_inventory (
+          id VARCHAR(36) PRIMARY KEY,
+          item_name VARCHAR(255) NOT NULL,
+          category ENUM('cable', 'connecteur', 'antenne', 'boitier', 'autre') NOT NULL,
+          brand VARCHAR(255) NULL,
+          model VARCHAR(255) NULL,
+          quantity INT NOT NULL DEFAULT 1,
+          unit ENUM('unite', 'metre', 'lot') DEFAULT 'unite',
+          location VARCHAR(255) NULL,
+          supplier VARCHAR(255) NULL,
+          purchase_date DATE NULL,
+          purchase_cost DECIMAL(10, 2) NULL,
+          notes TEXT NULL,
+          created_by VARCHAR(36) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE RESTRICT,
+          INDEX idx_network_inventory_category (category)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      console.log('✅ Table network_inventory créée.');
+    }
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (network tables):', error?.message || error);
+  }
+}
+
+async function ensureTrainingsPrestataireColumns() {
+  try {
+    const [tables] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'trainings'`,
+      [dbConfig.database]
+    );
+    const hasTable = Number(tables?.[0]?.cnt || 0) > 0;
+    
+    if (!hasTable) {
+      return; // La table n'existe pas encore, elle sera créée avec le schéma complet
+    }
+
+    // Vérifier et ajouter les colonnes manquantes pour les prestataires
+    const [columns] = await pool.execute(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'trainings'`,
+      [dbConfig.database]
+    );
+    const columnNames = columns.map(col => col.COLUMN_NAME);
+    
+    const newColumns = [
+      { name: 'prestataire', def: 'VARCHAR(255) NULL COMMENT "Nom du prestataire"' },
+      { name: 'prestataire_evaluation', def: 'TEXT NULL COMMENT "Évaluation/commentaire sur le prestataire"' },
+      { name: 'prestataire_note', def: 'DECIMAL(3,1) NULL COMMENT "Note du prestataire (sur 10)"' }
+    ];
+    
+    for (const col of newColumns) {
+      if (!columnNames.includes(col.name)) {
+        try {
+          await pool.execute(`ALTER TABLE trainings ADD COLUMN ${col.name} ${col.def}`);
+          console.log(`✅ Colonne ${col.name} ajoutée à trainings.`);
+        } catch (err) {
+          console.warn(`⚠️  Erreur lors de l'ajout de ${col.name}:`, err.message);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️  Migration auto ignorée (trainings prestataire):', error?.message || error);
   }
 }
 
@@ -4253,6 +5119,9 @@ async function startServer() {
   await ensureIncidentCommentsTable();
   await ensureAESTable();
   await ensureCameraAccessRequestsTable();
+  await ensureTrainingsPrestataireColumns();
+  await ensureWorksTable();
+  await ensureNetworkTables();
 
   // Démarrage du serveur
   app.listen(PORT, () => {

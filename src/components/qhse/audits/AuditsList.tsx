@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,7 +7,7 @@ import { Icon } from "@/components/Icon";
 import { Audit, AuditType, AuditStatus, AuditChecklist, AuditActionPlan, ComplianceStatus, Users } from "@/types";
 import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
-import { format } from "date-fns";
+import { format, isBefore, differenceInDays } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,7 @@ import { LoadingSpinner } from "@/components/shared/Loading";
 import { exportToExcel } from "@/utils/excelExport";
 import { ExcelImportButton } from "@/components/shared/ExcelImportButton";
 import { generateAuditReportPDF } from "@/utils/auditReportGenerator";
+import { DashboardCard } from "@/components/shared/DashboardCard";
 
 const auditTypeLabels: Record<AuditType, string> = {
   interne: "Audit Interne",
@@ -51,11 +52,62 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
   const [selectedAudit, setSelectedAudit] = useState<Audit | null>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<AuditStatus | 'all'>('all');
+  const [typeFilter, setTypeFilter] = useState<AuditType | 'all'>('all');
 
-  const { filteredData: filteredAudits, searchQuery, setSearchQuery } = useFilterAndSearch(
+  const { filteredData: baseFilteredAudits, searchQuery, setSearchQuery } = useFilterAndSearch(
     audits,
     ['title', 'scope', 'audited_department']
   );
+
+  // Filtres supplémentaires par statut et type
+  const filteredAudits = useMemo(() => {
+    return baseFilteredAudits.filter(audit => {
+      if (statusFilter !== 'all' && audit.status !== statusFilter) return false;
+      if (typeFilter !== 'all' && audit.audit_type !== typeFilter) return false;
+      return true;
+    });
+  }, [baseFilteredAudits, statusFilter, typeFilter]);
+
+  // Statistiques
+  const stats = useMemo(() => {
+    const total = audits.length;
+    const planifie = audits.filter(a => a.status === 'planifié').length;
+    const enCours = audits.filter(a => a.status === 'en_cours').length;
+    const termine = audits.filter(a => a.status === 'terminé').length;
+    const annule = audits.filter(a => a.status === 'annulé').length;
+    
+    const today = new Date();
+    const aVenir = audits.filter(a => 
+      a.status === 'planifié' && 
+      a.planned_date && 
+      differenceInDays(a.planned_date, today) >= 0 &&
+      differenceInDays(a.planned_date, today) <= 30
+    ).length;
+    
+    const enRetard = audits.filter(a => 
+      a.status === 'planifié' && 
+      a.planned_date && 
+      isBefore(a.planned_date, today)
+    ).length;
+    
+    const totalNonConformites = audits.reduce((sum, a) => sum + (a.non_conformities_count || 0), 0);
+    const totalConformites = audits.reduce((sum, a) => sum + (a.conformities_count || 0), 0);
+    const totalOpportunites = audits.reduce((sum, a) => sum + (a.opportunities_count || 0), 0);
+    
+    return {
+      total,
+      planifie,
+      enCours,
+      termine,
+      annule,
+      aVenir,
+      enRetard,
+      totalNonConformites,
+      totalConformites,
+      totalOpportunites,
+    };
+  }, [audits]);
 
   useEffect(() => {
     fetchAudits();
@@ -169,71 +221,275 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-6">
-          <div className="relative">
-            <Icon name="Search" className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Rechercher par titre, périmètre..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+        {/* Statistiques */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
+          <DashboardCard
+            title="Total Audits"
+            value={stats.total}
+            iconName="ClipboardCheck"
+            colorClass="bg-blue-100 text-blue-600"
+          />
+          <DashboardCard
+            title="Planifiés"
+            value={stats.planifie}
+            iconName="Calendar"
+            colorClass="bg-cyan-100 text-cyan-600"
+          />
+          <DashboardCard
+            title="En Cours"
+            value={stats.enCours}
+            iconName="Clock"
+            colorClass="bg-yellow-100 text-yellow-600"
+          />
+          <DashboardCard
+            title="Terminés"
+            value={stats.termine}
+            iconName="CheckCircle2"
+            colorClass="bg-green-100 text-green-600"
+          />
+          <DashboardCard
+            title="À Venir (30j)"
+            value={stats.aVenir}
+            iconName="CalendarDays"
+            colorClass="bg-purple-100 text-purple-600"
+          />
+          <DashboardCard
+            title="En Retard"
+            value={stats.enRetard}
+            iconName="AlertTriangle"
+            colorClass="bg-red-100 text-red-600"
+          />
         </div>
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Titre</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Date Planifiée</TableHead>
-              <TableHead>Département</TableHead>
-              <TableHead>Non-conformités</TableHead>
-              <TableHead>Statut</TableHead>
-              <TableHead>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredAudits.length > 0 ? filteredAudits.map((audit) => (
-              <TableRow key={audit.id}>
-                <TableCell className="font-medium">{audit.title}</TableCell>
-                <TableCell>{auditTypeLabels[audit.audit_type]}</TableCell>
-                <TableCell>{format(audit.planned_date, 'dd/MM/yyyy')}</TableCell>
-                <TableCell>{audit.audited_department || '-'}</TableCell>
-                <TableCell>
-                  <Badge variant={audit.non_conformities_count > 0 ? 'destructive' : 'default'}>
-                    {audit.non_conformities_count}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge className={statusColors[audit.status]}>
-                    {statusLabels[audit.status]}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => {
-                      setSelectedAudit(audit);
-                      setIsDetailsDialogOpen(true);
-                    }}
+        {/* Statistiques des constats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-red-700 mb-1">Non-conformités</p>
+                  <p className="text-2xl font-bold text-red-800">{stats.totalNonConformites}</p>
+                </div>
+                <Icon name="XCircle" className="h-8 w-8 text-red-600" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-green-200 bg-green-50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-700 mb-1">Conformités</p>
+                  <p className="text-2xl font-bold text-green-800">{stats.totalConformites}</p>
+                </div>
+                <Icon name="CheckCircle" className="h-8 w-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-blue-200 bg-blue-50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-700 mb-1">Opportunités</p>
+                  <p className="text-2xl font-bold text-blue-800">{stats.totalOpportunites}</p>
+                </div>
+                <Icon name="Lightbulb" className="h-8 w-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filtres et recherche */}
+        <div className="mb-6 space-y-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Icon name="Search" className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Rechercher par titre, périmètre, département..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as AuditStatus | 'all')}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Statut" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les statuts</SelectItem>
+                  {Object.entries(statusLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as AuditType | 'all')}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les types</SelectItem>
+                  {Object.entries(auditTypeLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {(statusFilter !== 'all' || typeFilter !== 'all' || searchQuery) && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setTypeFilter('all');
+                    setSearchQuery('');
+                  }}
+                  className="text-xs"
+                >
+                  <Icon name="X" className="h-4 w-4 mr-1" />
+                  Réinitialiser
+                </Button>
+              )}
+            </div>
+          </div>
+          {(statusFilter !== 'all' || typeFilter !== 'all' || searchQuery) && (
+            <div className="text-sm text-gray-600 flex items-center gap-2">
+              <Icon name="Filter" className="h-4 w-4" />
+              <span>
+                {filteredAudits.length} audit{filteredAudits.length > 1 ? 's' : ''} trouvé{filteredAudits.length > 1 ? 's' : ''} 
+                {filteredAudits.length !== audits.length && ` sur ${audits.length} total`}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="border rounded-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50">
+                <TableHead className="font-semibold">Titre</TableHead>
+                <TableHead className="font-semibold">Type</TableHead>
+                <TableHead className="font-semibold">Date Planifiée</TableHead>
+                <TableHead className="font-semibold">Date Réelle</TableHead>
+                <TableHead className="font-semibold">Département</TableHead>
+                <TableHead className="font-semibold text-center">Constats</TableHead>
+                <TableHead className="font-semibold">Statut</TableHead>
+                <TableHead className="font-semibold text-center">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredAudits.length > 0 ? filteredAudits.map((audit) => {
+                const isOverdue = audit.status === 'planifié' && audit.planned_date && isBefore(audit.planned_date, new Date());
+                const daysUntil = audit.planned_date ? differenceInDays(audit.planned_date, new Date()) : null;
+                
+                return (
+                  <TableRow 
+                    key={audit.id} 
+                    className={isOverdue ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}
                   >
-                    <Icon name="Eye" className="h-4 w-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            )) : (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
-                  <Icon name="ClipboardCheck" className="mx-auto text-4xl text-gray-300 mb-2" />
-                  {searchQuery ? 'Aucun audit ne correspond à votre recherche.' : 'Aucun audit programmé.'}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {isOverdue && <Icon name="AlertTriangle" className="h-4 w-4 text-red-600" />}
+                        {audit.title}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {auditTypeLabels[audit.audit_type]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span>{format(audit.planned_date, 'dd/MM/yyyy')}</span>
+                        {daysUntil !== null && daysUntil >= 0 && daysUntil <= 7 && (
+                          <span className="text-xs text-orange-600 font-medium">
+                            Dans {daysUntil} jour{daysUntil > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {audit.actual_date ? (
+                        <span className="text-sm">{format(new Date(audit.actual_date), 'dd/MM/yyyy')}</span>
+                      ) : (
+                        <span className="text-gray-400 text-sm">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm">{audit.audited_department || '-'}</span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-center gap-2">
+                        {audit.non_conformities_count > 0 && (
+                          <Badge variant="destructive" className="text-xs">
+                            NC: {audit.non_conformities_count}
+                          </Badge>
+                        )}
+                        {audit.conformities_count > 0 && (
+                          <Badge className="bg-green-100 text-green-700 text-xs">
+                            C: {audit.conformities_count}
+                          </Badge>
+                        )}
+                        {audit.opportunities_count > 0 && (
+                          <Badge className="bg-blue-100 text-blue-700 text-xs">
+                            O: {audit.opportunities_count}
+                          </Badge>
+                        )}
+                        {(!audit.non_conformities_count && !audit.conformities_count && !audit.opportunities_count) && (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={statusColors[audit.status]}>
+                        {statusLabels[audit.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedAudit(audit);
+                            setIsDetailsDialogOpen(true);
+                          }}
+                          title="Voir les détails"
+                        >
+                          <Icon name="Eye" className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              }) : (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-12">
+                    <Icon name="ClipboardCheck" className="mx-auto text-5xl text-gray-300 mb-3" />
+                    <p className="text-gray-500 font-medium">
+                      {searchQuery || statusFilter !== 'all' || typeFilter !== 'all' 
+                        ? 'Aucun audit ne correspond aux filtres sélectionnés.' 
+                        : 'Aucun audit programmé.'}
+                    </p>
+                    {(searchQuery || statusFilter !== 'all' || typeFilter !== 'all') && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setStatusFilter('all');
+                          setTypeFilter('all');
+                        }}
+                        className="mt-4"
+                      >
+                        <Icon name="X" className="h-4 w-4 mr-1" />
+                        Réinitialiser les filtres
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
 
       {/* Dialog de détails de l'audit */}
@@ -247,11 +503,11 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
           }}
           onUpdate={fetchAudits}
           users={users}
-          onGenerateReport={async () => {
+          onGenerateReport={async (checklists?: AuditChecklist[], actionPlans?: AuditActionPlan[]) => {
             if (selectedAudit) {
               setIsGeneratingReport(true);
               try {
-                await generateAuditReportPDF(selectedAudit, users);
+                await generateAuditReportPDF(selectedAudit, users, checklists, actionPlans);
                 showSuccess('Rapport PDF généré avec succès !');
               } catch (error: any) {
                 console.error('Erreur lors de la génération du rapport:', error);
@@ -292,7 +548,7 @@ const AuditDetailsDialog = ({
   onClose: () => void; 
   onUpdate: () => void;
   users?: Users;
-  onGenerateReport: () => void;
+  onGenerateReport: (checklists?: AuditChecklist[], actionPlans?: AuditActionPlan[]) => void;
   isGeneratingReport: boolean;
 }) => {
   const [currentStatus, setCurrentStatus] = useState<AuditStatus>(audit.status);
@@ -860,7 +1116,7 @@ const AuditDetailsDialog = ({
                   </div>
                 </div>
                 <Button
-                  onClick={onGenerateReport}
+                  onClick={() => onGenerateReport(checklists, actionPlans)}
                   disabled={isGeneratingReport}
                   className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 hover:from-cyan-700 hover:via-blue-700 hover:to-teal-700"
                 >
@@ -1260,9 +1516,44 @@ const ActionPlanDialog = ({
     setFindingId('');
   };
 
-  const availableUsers = users ? Object.values(users).filter(u => 
-    ['superviseur_qhse', 'agent_entretien', 'agent_securite', 'technicien', 'biomedical'].includes(u.role)
-  ) : [];
+  // Fonction pour obtenir le label d'un rôle
+  const getRoleLabel = (role: string): string => {
+    const roleLabels: Record<string, string> = {
+      'superviseur_qhse': 'Superviseur QHSE',
+      'assistante_qhse': 'Assistante QHSE',
+      'agent_entretien': 'Agent Entretien',
+      'agent_securite': 'Agent Sécurité',
+      'technicien': 'Technicien Biomédical',
+      'technicien_polyvalent': 'Technicien Polyvalent',
+      'biomedical': 'Technicien Biomédical',
+      'superviseur_technicien': 'Superviseur Technique',
+    };
+    return roleLabels[role] || role;
+  };
+
+  // Utilisateurs disponibles pour l'assignation : techniciens et assistante QHSE
+  const availableUsers = users ? Object.values(users).filter(u => {
+    const assignableRoles = [
+      'assistante_qhse',           // Assistante QHSE
+      'technicien',                // Technicien Biomédical
+      'technicien_polyvalent',      // Technicien Polyvalent
+      'biomedical',                 // Technicien Biomédical (alias)
+      'superviseur_technicien',    // Superviseur Technique (si nécessaire)
+    ];
+    return assignableRoles.includes(u.role);
+  }) : [];
+
+  // Trier les utilisateurs par rôle pour un meilleur affichage
+  const sortedUsers = [...availableUsers].sort((a, b) => {
+    const roleOrder: Record<string, number> = {
+      'assistante_qhse': 1,
+      'technicien': 2,
+      'technicien_polyvalent': 3,
+      'biomedical': 4,
+      'superviseur_technicien': 5,
+    };
+    return (roleOrder[a.role] || 99) - (roleOrder[b.role] || 99);
+  });
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -1351,13 +1642,64 @@ const ActionPlanDialog = ({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Non assigné</SelectItem>
-                  {availableUsers.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.civility} {user.first_name} {user.last_name} ({user.role})
+                  {sortedUsers.length > 0 ? (
+                    <>
+                      {/* Grouper par catégorie pour meilleure lisibilité */}
+                      {sortedUsers.some(u => u.role === 'assistante_qhse') && (
+                        <>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 uppercase">
+                            QHSE
+                          </div>
+                          {sortedUsers
+                            .filter(u => u.role === 'assistante_qhse')
+                            .map((user) => {
+                              const roleLabel = getRoleLabel(user.role);
+                              const userName = `${user.civility || ''} ${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || user.username;
+                              return (
+                                <SelectItem key={user.id} value={user.id}>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">{userName}</span>
+                                    <span className="text-xs text-gray-500">({roleLabel})</span>
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
+                        </>
+                      )}
+                      {sortedUsers.some(u => ['technicien', 'technicien_polyvalent', 'biomedical', 'superviseur_technicien'].includes(u.role)) && (
+                        <>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 uppercase mt-2">
+                            Techniciens
+                          </div>
+                          {sortedUsers
+                            .filter(u => ['technicien', 'technicien_polyvalent', 'biomedical', 'superviseur_technicien'].includes(u.role))
+                            .map((user) => {
+                              const roleLabel = getRoleLabel(user.role);
+                              const userName = `${user.civility || ''} ${user.first_name || ''} ${user.last_name || ''}`.trim() || user.name || user.username;
+                              return (
+                                <SelectItem key={user.id} value={user.id}>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">{userName}</span>
+                                    <span className="text-xs text-gray-500">({roleLabel})</span>
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <SelectItem value="none" disabled>
+                      Aucun utilisateur disponible (techniciens ou assistante QHSE)
                     </SelectItem>
-                  ))}
+                  )}
                 </SelectContent>
               </Select>
+              {sortedUsers.length === 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Aucun technicien ou assistante QHSE disponible pour l'assignation.
+                </p>
+              )}
             </div>
 
             <div>

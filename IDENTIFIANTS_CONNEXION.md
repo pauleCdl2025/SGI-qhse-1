@@ -63,6 +63,15 @@
 - **Email** : `agent.entretien@hospital.com`
 - **Mot de passe** : `agent_entretien123`
 - **Rôle** : Agent d'Entretien
+
+---
+
+### 🌐 8. Administrateur Réseau
+- **Nom d'utilisateur** : `admin_reseau`
+- **Email** : `admin.reseau@hospital.com`
+- **Mot de passe** : `admin_reseau123`
+- **Rôle** : Administrateur Réseau
+- **Accès** : Matériel réseau, abonnements, inventaire, rondes, tâches et incidents réseau
 - **Accès** : Signalement problèmes, historique entretien, mes tâches, modules QHSE
 
 ---

@@ -42,6 +42,33 @@ const uploadDocument = multer({
   }
 });
 
+// Configuration Multer pour l'upload d'images de déchets médicaux
+const wasteStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, '..', 'uploads', 'waste_photos');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${uuidv4()}${ext}`);
+  }
+});
+
+const uploadWaste = multer({ 
+  storage: wasteStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Seuls les fichiers image sont autorisés'));
+    }
+  }
+});
+
 // Note: pool et authenticateToken seront injectés depuis server.js
 let pool;
 let authenticateToken;
@@ -486,6 +513,42 @@ module.exports = (dbPool, authMiddleware, dbName) => {
     } catch (error) {
       console.error('Erreur lors de l\'enregistrement du déchet:', error);
       res.status(500).json({ error: 'Erreur serveur' });
+    }
+  });
+
+  // Upload d'images pour les déchets médicaux
+  router.post('/waste/upload-images', authenticateToken, (req, res, next) => {
+    console.log('📸 Upload d\'images de déchets médicaux - Fichiers reçus:', req.files?.length || 0);
+    uploadWaste.array('images', 10)(req, res, (err) => {
+      if (err) {
+        console.error('❌ Erreur Multer lors de l\'upload des images de déchets:', err);
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'Fichier trop volumineux (max 10MB)' });
+        }
+        if (err.message && err.message.includes('image')) {
+          return res.status(400).json({ error: 'Seuls les fichiers image sont autorisés' });
+        }
+        return res.status(400).json({ error: 'Erreur lors de l\'upload: ' + err.message });
+      }
+      next();
+    });
+  }, (req, res) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        console.warn('⚠️ Aucun fichier reçu pour l\'upload de déchets médicaux');
+        return res.status(400).json({ error: 'Aucun fichier fourni' });
+      }
+      
+      console.log(`✅ ${req.files.length} fichier(s) reçu(s) pour l'upload de déchets médicaux`);
+      const urls = req.files.map(file => {
+        const url = `${process.env.UPLOAD_BASE_URL || 'http://localhost:3001/uploads'}/waste_photos/${file.filename}`;
+        console.log(`  - Fichier sauvegardé: ${file.filename} -> ${url}`);
+        return url;
+      });
+      res.json({ urls });
+    } catch (error) {
+      console.error('❌ Erreur lors de l\'upload des images de déchets:', error);
+      res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
     }
   });
 

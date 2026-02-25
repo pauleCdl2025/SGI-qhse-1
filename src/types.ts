@@ -335,6 +335,35 @@ export interface AuditActionPlan {
   updated_at: Date;
 }
 
+// GESTION DES TRAVAUX
+export type WorkType = 'maintenance' | 'reparation' | 'renovation' | 'construction' | 'amelioration' | 'autre';
+export type WorkStatus = 'planifié' | 'en_cours' | 'en_pause' | 'terminé' | 'annulé';
+
+export interface Work {
+  id: string;
+  title: string;
+  description: string;
+  work_type: WorkType;
+  location?: string;
+  priority: 'faible' | 'moyenne' | 'haute' | 'critique';
+  status: WorkStatus;
+  assigned_to?: string;
+  assigned_to_name?: string;
+  planned_start_date?: Date;
+  planned_end_date?: Date;
+  actual_start_date?: Date;
+  actual_end_date?: Date;
+  estimated_cost?: number;
+  actual_cost?: number;
+  supplier_name?: string;
+  supplier_contact?: string;
+  notes?: string;
+  photo_urls?: string[];
+  created_by: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // 3. FORMATIONS & COMPÉTENCES
 export type TrainingType = 'interne' | 'externe' | 'en_ligne' | 'présentiel';
 export type TrainingStatus = 'planifiée' | 'en_cours' | 'terminée' | 'annulée';
@@ -356,6 +385,9 @@ export interface Training {
   max_participants?: number;
   certificate_required: boolean;
   validity_months?: number;
+  prestataire?: string; // Nom du prestataire
+  prestataire_evaluation?: string; // Évaluation du prestataire (commentaire)
+  prestataire_note?: number; // Note du prestataire (sur 5 ou 10)
   created_by: string;
   created_at: Date;
   updated_at: Date;
@@ -609,7 +641,7 @@ export interface Report {
 }
 
 // 9. RONDES QUOTIDIENNES
-export type RoundType = 'biomedical' | 'technicien_polyvalent';
+export type RoundType = 'biomedical' | 'technicien_polyvalent' | 'reseau';
 export type RoundStatus = 'en_cours' | 'terminée' | 'annulée';
 export type ChecklistItemType = 'checkbox' | 'text' | 'number' | 'select';
 
@@ -693,6 +725,21 @@ export interface AES {
   date_cloture?: Date;
   nom_signature_qhse?: string;
   
+  // K. Colonnes supplémentaires pour le tableau de suivi
+  numero_aes?: number;
+  port_epi?: boolean;
+  declaration_immediate?: boolean;
+  date_declaration?: Date;
+  prise_charge_immediate?: boolean;
+  inscription_sentimed?: boolean;
+  bon_examen_prescrit?: boolean;
+  matricule_sentimed?: string;
+  date_prise_resultat?: Date;
+  suivi_m3_date?: Date;
+  suivi_m3_vhb?: boolean;
+  suivi_m3_vhc?: boolean;
+  observations?: string;
+  
   // Métadonnées
   created_by: string;
   created_at: Date;
@@ -768,6 +815,9 @@ export interface CameraAccessRequest {
   hierarchical_authorization_date?: Date;
   status: CameraAccessRequestStatus;
   notes?: string;
+  qhse_validation?: string; // Nom du responsable QHSE qui valide
+  qhse_validation_date?: Date; // Date de validation QHSE
+  requester_signature?: string; // Signature du demandeur
   created_at?: Date;
   updated_at?: Date;
 }

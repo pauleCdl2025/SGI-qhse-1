@@ -396,13 +396,6 @@ export const BiomedicalPortal = ({ user, biomedicalEquipment, maintenanceTasks, 
             <p className="text-sm text-gray-600">Planifier les interventions préventives</p>
           </CardContent>
         </Card>
-        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('maintenanceHistory')}>
-          <CardContent className="p-6">
-            <Icon name="History" className="text-blue-600 mb-3 text-3xl" />
-            <h3 className="font-semibold mb-2">Historique</h3>
-            <p className="text-sm text-gray-600">Consulter les interventions réalisées</p>
-          </CardContent>
-        </Card>
         <Card className="card-hover cursor-pointer" onClick={() => onNavigate('kpiDashboard')}>
           <CardContent className="p-6">
             <Icon name="BarChart3" className="text-green-600 mb-3 text-3xl" />

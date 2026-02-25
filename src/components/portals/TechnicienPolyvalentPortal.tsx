@@ -115,7 +115,6 @@ export const TechnicienPolyvalentPortal = ({
           value={stats.pendingMaintenance} 
           iconName="Clock" 
           colorClass="bg-yellow-100 text-yellow-600"
-          onClick={() => onNavigate('maintenanceHistory')}
         />
         <DashboardCard 
           title="Incidents en Cours" 
@@ -168,31 +167,6 @@ export const TechnicienPolyvalentPortal = ({
           </CardContent>
         </Card>
 
-        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('maintenanceHistory')}>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Icon name="History" className="text-cyan-600 mr-2" />
-              Historique de Maintenance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600 mb-4">Consulter l'historique des interventions</p>
-            <div className="space-y-2">
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-cyan-600 mr-2" />
-                Voir les maintenances planifiées
-              </div>
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-cyan-600 mr-2" />
-                Suivre les interventions
-              </div>
-              <div className="flex items-center text-sm">
-                <Icon name="Check" className="text-cyan-600 mr-2" />
-                Consulter l'historique
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
         <Card className="card-hover cursor-pointer" onClick={() => onNavigate('qhseTickets')}>
           <CardHeader>
@@ -298,7 +272,6 @@ export const TechnicienPolyvalentPortal = ({
                   <Button 
                     size="sm" 
                     variant="outline"
-                    onClick={() => onNavigate('maintenanceHistory')}
                   >
                     Voir
                   </Button>

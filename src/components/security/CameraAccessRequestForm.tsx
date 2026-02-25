@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Icon } from "@/components/Icon";
 import { CameraAccessRequest, User } from "@/types";
 import { showError, showSuccess } from "@/utils/toast";
@@ -24,6 +25,9 @@ const ACCESS_REASONS = [
 ] as const;
 
 export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAccessRequestFormProps) => {
+  const [requesterName, setRequesterName] = useState('');
+  const [requesterService, setRequesterService] = useState('');
+  const [requestDate, setRequestDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [otherReason, setOtherReason] = useState('');
   const [accessStartDate, setAccessStartDate] = useState('');
@@ -33,6 +37,9 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
   const [cameraZones, setCameraZones] = useState('');
   const [hierarchicalAuthorization, setHierarchicalAuthorization] = useState('');
   const [notes, setNotes] = useState('');
+  const [qhseValidation, setQhseValidation] = useState('');
+  const [qhseValidationDate, setQhseValidationDate] = useState('');
+  const [requesterSignature, setRequesterSignature] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleReasonToggle = (reason: string) => {
@@ -46,6 +53,22 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validation des champs du demandeur
+    if (!requesterName.trim()) {
+      showError("Veuillez remplir le nom du demandeur.");
+      return;
+    }
+
+    if (!requesterService.trim()) {
+      showError("Veuillez remplir le service/département.");
+      return;
+    }
+
+    if (!requestDate) {
+      showError("Veuillez remplir la date de la demande.");
+      return;
+    }
+
     // Vérifier qu'au moins un motif est sélectionné
     if (selectedReasons.length === 0 && !otherReason.trim()) {
       showError("Veuillez sélectionner au moins un motif de consultation.");
@@ -60,6 +83,41 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
 
     if (!accessStartDate || !accessEndDate) {
       showError("Veuillez remplir toutes les dates obligatoires.");
+      return;
+    }
+
+    if (!accessStartTime || !accessEndTime) {
+      showError("Veuillez remplir les heures de début et de fin.");
+      return;
+    }
+
+    if (!cameraZones.trim()) {
+      showError("Veuillez préciser les zones/caméras concernées.");
+      return;
+    }
+
+    if (!hierarchicalAuthorization.trim()) {
+      showError("Veuillez indiquer l'autorisation hiérarchique.");
+      return;
+    }
+
+    if (!notes.trim()) {
+      showError("Veuillez remplir les notes complémentaires.");
+      return;
+    }
+
+    if (!qhseValidation.trim()) {
+      showError("Veuillez remplir la validation QHSE.");
+      return;
+    }
+
+    if (!qhseValidationDate) {
+      showError("Veuillez remplir la date de validation QHSE.");
+      return;
+    }
+
+    if (!requesterSignature.trim()) {
+      showError("Veuillez remplir la signature du demandeur.");
       return;
     }
 
@@ -84,8 +142,11 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
         }
       }
 
-      const requestData: Omit<CameraAccessRequest, 'id' | 'request_date' | 'status' | 'created_at' | 'updated_at' | 'requester_name' | 'requester_service' | 'requester_position'> = {
+      const requestData: any = {
         requester_id: user.id,
+        requester_name: requesterName,
+        requester_service: requesterService,
+        // request_date sera géré par le backend avec l'heure actuelle
         access_reason: accessReason,
         access_start_date: startDate,
         access_end_date: endDate,
@@ -94,12 +155,18 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
         camera_zones: cameraZones || undefined,
         hierarchical_authorization: hierarchicalAuthorization || undefined,
         notes: notes || undefined,
+        qhse_validation: qhseValidation || undefined,
+        qhse_validation_date: qhseValidationDate ? new Date(qhseValidationDate) : undefined,
+        requester_signature: requesterSignature || undefined,
       };
 
       await apiClient.createCameraAccessRequest(requestData);
       showSuccess("Demande d'accès aux caméras soumise avec succès.");
       
       // Reset form
+      setRequesterName('');
+      setRequesterService('');
+      setRequestDate(new Date().toISOString().split('T')[0]);
       setSelectedReasons([]);
       setOtherReason('');
       setAccessStartDate('');
@@ -109,6 +176,9 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
       setCameraZones('');
       setHierarchicalAuthorization('');
       setNotes('');
+      setQhseValidation('');
+      setQhseValidationDate('');
+      setRequesterSignature('');
 
       if (onRequestSubmitted) {
         onRequestSubmitted();
@@ -129,37 +199,105 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
       <CardHeader>
         <CardTitle className="flex items-center">
           <Icon name="Video" className="text-blue-600 mr-2" />
-          Formulaire de Demande d'Accès aux Caméras
+          Formulaire de Demande d'Accès aux Caméras de Surveillance
         </CardTitle>
+        <p className="text-sm text-gray-600 mt-2">
+          (À compléter et valider avant toute consultation des images)
+        </p>
       </CardHeader>
       <CardContent>
+        {/* Sections informatives */}
+        <div className="mb-6 space-y-4">
+          <Accordion type="single" collapsible className="w-full">
+            <AccordionItem value="utilisation">
+              <AccordionTrigger className="text-left font-semibold">
+                Utilisation
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <span className="font-semibold">Conditions d'utilisation :</span>
+                    <ul className="list-disc list-inside mt-1 space-y-1 text-gray-700">
+                      <li>Investigation d'un incident interne</li>
+                      <li>Enquête sur un accident ou situation dangereuse</li>
+                      <li>Audit interne ou contrôle qualité</li>
+                      <li>Sécurité du personnel ou des installations</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Responsable de la saisie :</span>
+                    <span className="text-gray-700 ml-2">Tout le personnel hors membre du CODIR</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Fréquence :</span>
+                    <span className="text-gray-700 ml-2">Dès l'apparition d'un incident dont on n'a pas les causes et l'historique</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Circuit :</span>
+                    <span className="text-gray-700 ml-2">Disponible auprès du service QHSE et archivé dans notre base de données</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Traçabilité et archivage :</span>
+                    <span className="text-gray-700 ml-2">Archivé dans la base de données QHSE pour 3 ans</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Procédure associée :</span>
+                    <span className="text-gray-700 ml-2">Gestion des accès et utilisation des caméras – QGR-PROC-004</span>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="mode-emploi">
+              <AccordionTrigger className="text-left font-semibold">
+                Mode d'emploi
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <span className="font-semibold">Règles essentielles :</span>
+                    <p className="text-gray-700 mt-1">Respecter la procédure rattachée à ce formulaire</p>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Champs obligatoires :</span>
+                    <p className="text-gray-700 mt-1">Tous les champs sont obligatoires</p>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Informations du demandeur */}
           <div className="bg-gray-50 p-4 rounded-lg">
             <h3 className="font-semibold text-gray-700 mb-3">Demandeur</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label>Demandeur</Label>
+                <Label>Demandeur *</Label>
                 <Input
-                  value={`${user.civility} ${user.first_name} ${user.last_name}`}
-                  disabled
+                  value={requesterName}
+                  onChange={(e) => setRequesterName(e.target.value)}
+                  required
                   className="bg-white"
                 />
               </div>
               <div>
-                <Label>Service / Département</Label>
+                <Label>Service / Département *</Label>
                 <Input
-                  value={user.position || 'Non spécifié'}
-                  disabled
+                  value={requesterService}
+                  onChange={(e) => setRequesterService(e.target.value)}
+                  required
                   className="bg-white"
                 />
               </div>
             </div>
             <div className="mt-4">
-              <Label>Date de la demande</Label>
+              <Label>Date de la demande *</Label>
               <Input
-                value={new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                disabled
+                type="date"
+                value={requestDate}
+                onChange={(e) => setRequestDate(e.target.value)}
+                required
                 className="bg-white"
               />
             </div>
@@ -221,7 +359,7 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
                   type="date"
                   value={accessStartDate}
                   onChange={(e) => setAccessStartDate(e.target.value)}
-                  min={today}
+                  max={requestDate}
                   required
                 />
               </div>
@@ -232,7 +370,8 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
                   type="date"
                   value={accessEndDate}
                   onChange={(e) => setAccessEndDate(e.target.value)}
-                  min={accessStartDate || today}
+                  min={accessStartDate || undefined}
+                  max={requestDate}
                   required
                 />
               </div>
@@ -242,45 +381,49 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
           {/* Heures d'accès */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="accessStartTime">Heure de début</Label>
+              <Label htmlFor="accessStartTime">Heure de début *</Label>
               <Input
                 id="accessStartTime"
                 type="time"
                 value={accessStartTime}
                 onChange={(e) => setAccessStartTime(e.target.value)}
+                required
               />
             </div>
             <div>
-              <Label htmlFor="accessEndTime">Heure de fin</Label>
+              <Label htmlFor="accessEndTime">Heure de fin *</Label>
               <Input
                 id="accessEndTime"
                 type="time"
                 value={accessEndTime}
                 onChange={(e) => setAccessEndTime(e.target.value)}
+                required
               />
             </div>
           </div>
 
           {/* Zones/Caméras concernées */}
           <div>
-            <Label htmlFor="cameraZones">Caméras / Zones concernées</Label>
+            <Label htmlFor="cameraZones">Zones/Caméras concernées *</Label>
             <Textarea
               id="cameraZones"
               placeholder="Précisez les zones ou numéros de caméras concernés..."
               value={cameraZones}
               onChange={(e) => setCameraZones(e.target.value)}
               rows={3}
+              required
             />
           </div>
 
           {/* Autorisation hiérarchique */}
           <div>
-            <Label htmlFor="hierarchicalAuthorization">Autorisation hiérarchique</Label>
+            <Label htmlFor="hierarchicalAuthorization">Autorisation hiérarchique *</Label>
             <Input
               id="hierarchicalAuthorization"
               placeholder="Nom du responsable qui autorise cette demande"
               value={hierarchicalAuthorization}
               onChange={(e) => setHierarchicalAuthorization(e.target.value)}
+              required
             />
           </div>
 
@@ -312,15 +455,55 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
             </div>
           </div>
 
+          {/* Validation */}
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <h4 className="font-semibold text-gray-900 mb-4">Validation :</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="qhseValidation">QHSE : *</Label>
+                <Input
+                  id="qhseValidation"
+                  placeholder="Nom du responsable QHSE"
+                  value={qhseValidation}
+                  onChange={(e) => setQhseValidation(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="qhseValidationDate">Date : *</Label>
+                <Input
+                  id="qhseValidationDate"
+                  type="date"
+                  value={qhseValidationDate}
+                  onChange={(e) => setQhseValidationDate(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Signature du demandeur */}
+          <div>
+            <Label htmlFor="requesterSignature">Signature du demandeur : *</Label>
+            <Input
+              id="requesterSignature"
+              placeholder="Nom et signature du demandeur"
+              value={requesterSignature}
+              onChange={(e) => setRequesterSignature(e.target.value)}
+              required
+            />
+          </div>
+
           {/* Notes */}
           <div>
-            <Label htmlFor="notes">Notes complémentaires</Label>
+            <Label htmlFor="notes">Notes complémentaires *</Label>
             <Textarea
               id="notes"
               placeholder="Toute information complémentaire utile..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
+              required
             />
           </div>
 

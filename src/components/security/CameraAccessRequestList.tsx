@@ -13,6 +13,8 @@ interface CameraAccessRequestListProps {
   requests: CameraAccessRequest[];
   isLoading?: boolean;
   currentUserId?: string;
+  currentUserRole?: string;
+  showAll?: boolean; // Si true, affiche toutes les demandes (pour superviseur QHSE)
 }
 
 const statusLabels: Record<CameraAccessRequestStatus, string> = {
@@ -29,14 +31,14 @@ const statusClasses: Record<CameraAccessRequestStatus, string> = {
   annule: 'bg-gray-500',
 };
 
-export const CameraAccessRequestList = ({ requests, isLoading = false, currentUserId }: CameraAccessRequestListProps) => {
+export const CameraAccessRequestList = ({ requests, isLoading = false, currentUserId, currentUserRole, showAll = false }: CameraAccessRequestListProps) => {
   if (isLoading) {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
             <Icon name="Video" className="text-blue-600 mr-2" />
-            Mes Demandes d'Accès aux Caméras
+            {showAll || currentUserRole === 'superviseur_qhse' ? 'Traçabilité des Demandes d\'Accès aux Caméras' : 'Mes Demandes d\'Accès aux Caméras'}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -48,10 +50,10 @@ export const CameraAccessRequestList = ({ requests, isLoading = false, currentUs
     );
   }
 
-  // Filtrer les demandes de l'utilisateur actuel si currentUserId est fourni
-  const filteredRequests = currentUserId
-    ? requests.filter(req => req.requester_id === currentUserId)
-    : requests;
+  // Le superviseur QHSE voit toutes les demandes, les autres utilisateurs voient seulement les leurs
+  const filteredRequests = (showAll || currentUserRole === 'superviseur_qhse')
+    ? requests
+    : (currentUserId ? requests.filter(req => req.requester_id === currentUserId) : requests);
 
   if (filteredRequests.length === 0) {
     return (
@@ -59,7 +61,7 @@ export const CameraAccessRequestList = ({ requests, isLoading = false, currentUs
         <CardHeader>
           <CardTitle className="flex items-center">
             <Icon name="Video" className="text-blue-600 mr-2" />
-            Mes Demandes d'Accès aux Caméras
+            {showAll || currentUserRole === 'superviseur_qhse' ? 'Traçabilité des Demandes d\'Accès aux Caméras' : 'Mes Demandes d\'Accès aux Caméras'}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -77,7 +79,7 @@ export const CameraAccessRequestList = ({ requests, isLoading = false, currentUs
       <CardHeader>
         <CardTitle className="flex items-center">
           <Icon name="Video" className="text-blue-600 mr-2" />
-          Mes Demandes d'Accès aux Caméras
+          {showAll || currentUserRole === 'superviseur_qhse' ? 'Traçabilité des Demandes d\'Accès aux Caméras' : 'Mes Demandes d\'Accès aux Caméras'}
           <Badge variant="secondary" className="ml-2">{filteredRequests.length}</Badge>
         </CardTitle>
       </CardHeader>
@@ -87,6 +89,8 @@ export const CameraAccessRequestList = ({ requests, isLoading = false, currentUs
             <TableHeader>
               <TableRow>
                 <TableHead>Date de demande</TableHead>
+                {(showAll || currentUserRole === 'superviseur_qhse') && <TableHead>Demandeur</TableHead>}
+                {(showAll || currentUserRole === 'superviseur_qhse') && <TableHead>Service</TableHead>}
                 <TableHead>Motif</TableHead>
                 <TableHead>Période</TableHead>
                 <TableHead>Zones/Caméras</TableHead>
@@ -100,6 +104,16 @@ export const CameraAccessRequestList = ({ requests, isLoading = false, currentUs
                   <TableCell>
                     {format(new Date(request.request_date), "dd/MM/yyyy", { locale: fr })}
                   </TableCell>
+                  {(showAll || currentUserRole === 'superviseur_qhse') && (
+                    <TableCell>
+                      {request.requester_name || 'Non spécifié'}
+                    </TableCell>
+                  )}
+                  {(showAll || currentUserRole === 'superviseur_qhse') && (
+                    <TableCell>
+                      {request.requester_service || 'Non spécifié'}
+                    </TableCell>
+                  )}
                   <TableCell className="max-w-xs truncate" title={request.access_reason}>
                     {request.access_reason}
                   </TableCell>

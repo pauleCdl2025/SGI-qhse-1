@@ -28,6 +28,16 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
 
       const fetchedUsers: Users = {};
       profilesData.forEach((profile: any) => {
+        // Fallback: détecter le rôle si vide
+        let detectedRole = profile.role;
+        if (!detectedRole || detectedRole.trim() === '') {
+          if (profile.email && profile.email.includes('reseau')) {
+            detectedRole = 'administrateur_reseau';
+          } else if (profile.username && profile.username.includes('reseau')) {
+            detectedRole = 'administrateur_reseau';
+          }
+        }
+        
         fetchedUsers[profile.username] = {
           id: profile.id,
           username: profile.username,
@@ -37,7 +47,7 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
           civility: profile.civility,
           email: profile.email,
           position: profile.service,
-          role: profile.role,
+          role: detectedRole || profile.role,
           pin: profile.pin,
           added_permissions: Array.isArray(profile.added_permissions) ? profile.added_permissions : (profile.added_permissions ? JSON.parse(profile.added_permissions) : []),
           removed_permissions: Array.isArray(profile.removed_permissions) ? profile.removed_permissions : (profile.removed_permissions ? JSON.parse(profile.removed_permissions) : []),
@@ -64,6 +74,18 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
       if (token && userId) {
         try {
           const profile = await apiClient.getProfile(userId);
+          // Fallback: détecter le rôle si vide
+          let detectedRole = profile.role;
+          if (!detectedRole || detectedRole.trim() === '') {
+            if (profile.email && profile.email.includes('reseau')) {
+              detectedRole = 'administrateur_reseau';
+              console.warn('Rôle détecté automatiquement (email): administrateur_reseau');
+            } else if (profile.username && profile.username.includes('reseau')) {
+              detectedRole = 'administrateur_reseau';
+              console.warn('Rôle détecté automatiquement (username): administrateur_reseau');
+            }
+          }
+          
           const fullUser: User = {
             id: profile.id,
             username: profile.username,
@@ -73,7 +95,7 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
             civility: profile.civility,
             email: profile.email,
             position: profile.service,
-            role: profile.role,
+            role: detectedRole || profile.role,
             pin: profile.pin,
             added_permissions: Array.isArray(profile.added_permissions) ? profile.added_permissions : (profile.added_permissions ? JSON.parse(profile.added_permissions) : []),
             removed_permissions: Array.isArray(profile.removed_permissions) ? profile.removed_permissions : (profile.removed_permissions ? JSON.parse(profile.removed_permissions) : []),
@@ -104,6 +126,18 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
       }
       
       const profile = await apiClient.getProfile(user.id);
+      // Fallback: détecter le rôle si vide
+      let detectedRole = profile.role;
+      if (!detectedRole || detectedRole.trim() === '') {
+        if (profile.email && profile.email.includes('reseau')) {
+          detectedRole = 'administrateur_reseau';
+          console.warn('Rôle détecté automatiquement (email): administrateur_reseau');
+        } else if (profile.username && profile.username.includes('reseau')) {
+          detectedRole = 'administrateur_reseau';
+          console.warn('Rôle détecté automatiquement (username): administrateur_reseau');
+        }
+      }
+      
       const fullUser: User = {
         id: profile.id,
         username: profile.username,
@@ -113,7 +147,7 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
         civility: profile.civility,
         email: profile.email,
         position: profile.service,
-        role: profile.role,
+        role: detectedRole || profile.role,
         pin: profile.pin,
         added_permissions: Array.isArray(profile.added_permissions) ? profile.added_permissions : (profile.added_permissions ? JSON.parse(profile.added_permissions) : []),
         removed_permissions: Array.isArray(profile.removed_permissions) ? profile.removed_permissions : (profile.removed_permissions ? JSON.parse(profile.removed_permissions) : []),

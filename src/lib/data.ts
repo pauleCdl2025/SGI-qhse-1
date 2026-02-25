@@ -36,7 +36,8 @@ export const allPermissions = [
   { id: 'globalRoomOverview', name: 'Vue Globale Salles', icon: 'MapPin' },
   // Modules QHSE
   { id: 'qhseAudits', name: 'Audits & Inspections', icon: 'ClipboardCheck' },
-  { id: 'qhseTrainings', name: 'Formations & Compétences', icon: 'GraduationCap' },
+  { id: 'qhseWorks', name: 'Gestion des Travaux', icon: 'Wrench' },
+  { id: 'qhseTrainings', name: 'Évaluation', icon: 'GraduationCap' },
   { id: 'qhseWaste', name: 'Déchets Médicaux', icon: 'Trash2' },
   { id: 'qhseSterilization', name: 'Stérilisation & Linge', icon: 'Droplet' },
   { id: 'qhseSterilizationRegister', name: 'Registre Stérilisation', icon: 'FileCheck' },
@@ -45,8 +46,12 @@ export const allPermissions = [
   { id: 'qhseReports', name: 'Reporting & Exportation', icon: 'FileBarChart' },
   { id: 'dailyRoundsBiomedical', name: 'Rondes Quotidiennes Biomédical', icon: 'ClipboardCheck' },
   { id: 'dailyRoundsPolyvalent', name: 'Rondes Quotidiennes Polyvalent', icon: 'ClipboardCheck' },
+  { id: 'dailyRoundsReseau', name: 'Rondes Réseau', icon: 'Network' },
   { id: 'dailyRoundsView', name: 'Consultation des Rondes', icon: 'ClipboardCheck' },
   { id: 'qhseAES', name: 'Gestion des AES', icon: 'Droplet' },
+  { id: 'cameraAccessRequestsTraceability', name: 'Traçabilité Demandes Accès Caméras', icon: 'Video' },
+  { id: 'networkEquipment', name: 'Matériel Réseau', icon: 'Server' },
+  { id: 'networkSubscriptions', name: 'Abonnements Réseau', icon: 'CreditCard' },
 ];
 
 const findPerms = (ids: string[]) => allPermissions.filter(p => ids.includes(p.id));
@@ -59,7 +64,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   ],
   superviseur_qhse: [
     { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningSalles', 'doctors', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'globalRoomOverview', 'qhseAudits', 'qhseTrainings', 'qhseWaste', 'qhseSterilization', 'qhseSterilizationRegister', 'qhseLaundry', 'qhseRisks', 'qhseReports', 'dailyRoundsView', 'qhseAES'])
+    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'qhseAudits', 'qhseWorks', 'qhseTrainings', 'qhseWaste', 'qhseSterilizationRegister', 'qhseRisks', 'qhseReports', 'dailyRoundsView', 'qhseAES', 'tableauSuiviAES', 'cameraAccessRequestsTraceability'])
   ],
   // Assistante QHSE : son portail, signalement d'incidents, gestion tickets, formations et consultation des rondes
   assistante_qhse: [
@@ -85,7 +90,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   ],
   biomedical: [
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-    ...findPerms(['biomedical', 'maintenanceHistory', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
+    ...findPerms(['biomedical', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
   ],
   dop: [
     ...findPerms(['personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
@@ -103,7 +108,12 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   // Rôle technicien polyvalent (homme à tout faire)
   technicien_polyvalent: [
     { id: 'portalTechnicienPolyvalent', name: 'Portail Technicien Polyvalent', icon: 'Wrench' },
-    ...findPerms(['maintenanceHistory', 'myTasks', 'planningTasks', 'personalInfo', 'qhseTickets', 'dailyRoundsPolyvalent'])
+    ...findPerms(['myTasks', 'planningTasks', 'personalInfo', 'qhseTickets', 'dailyRoundsPolyvalent'])
+  ],
+  // Rôle administrateur réseau
+  administrateur_reseau: [
+    { id: 'portalAdministrateurReseau', name: 'Mon Portail', icon: 'Home' },
+    ...findPerms(['networkEquipment', 'networkSubscriptions', 'dailyRoundsReseau', 'myTasks', 'planningTasks', 'qhseTickets', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
 };
 

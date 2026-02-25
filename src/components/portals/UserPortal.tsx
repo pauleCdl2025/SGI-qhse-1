@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/Icon";
 import { DashboardCard } from "@/components/shared/DashboardCard";
+import { IncidentHistoryCard } from "@/components/shared/IncidentHistoryCard";
 import { User, Incident, Visitor, PlannedTask, Booking, Notification } from "@/types";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";

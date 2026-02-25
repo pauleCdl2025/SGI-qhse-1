@@ -82,36 +82,38 @@ export const PersonalInfo = ({ user, onUpdatePassword }: PersonalInfoProps) => {
           </div>
         )}
 
-        <div className="border-t pt-4 mt-4 space-y-4">
-          <h3 className="text-lg font-semibold flex items-center">
-            <Icon name="KeyRound" className="mr-2 h-5 w-5 text-gray-600" />
-            Changer mon mot de passe
-          </h3>
-          <div>
-            <Label htmlFor="new-password">Nouveau mot de passe</Label>
-            <Input
-              id="new-password"
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              minLength={6}
-            />
+        {user.role === 'superadmin' && (
+          <div className="border-t pt-4 mt-4 space-y-4">
+            <h3 className="text-lg font-semibold flex items-center">
+              <Icon name="KeyRound" className="mr-2 h-5 w-5 text-gray-600" />
+              Changer mon mot de passe
+            </h3>
+            <div>
+              <Label htmlFor="new-password">Nouveau mot de passe</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                minLength={6}
+              />
+            </div>
+            <div>
+              <Label htmlFor="confirm-password">Confirmer le nouveau mot de passe</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                minLength={6}
+              />
+            </div>
+            {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
+            <Button onClick={handleChangePassword} disabled={isUpdatingPassword}>
+              {isUpdatingPassword ? 'Mise à jour...' : 'Mettre à jour le mot de passe'}
+            </Button>
           </div>
-          <div>
-            <Label htmlFor="confirm-password">Confirmer le nouveau mot de passe</Label>
-            <Input
-              id="confirm-password"
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              minLength={6}
-            />
-          </div>
-          {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
-          <Button onClick={handleChangePassword} disabled={isUpdatingPassword}>
-            {isUpdatingPassword ? 'Mise à jour...' : 'Mettre à jour le mot de passe'}
-          </Button>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

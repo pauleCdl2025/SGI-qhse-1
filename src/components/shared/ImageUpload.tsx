@@ -7,9 +7,10 @@ import { showError } from '@/utils/toast';
 interface ImageUploadProps {
   onFilesChange: (files: File[]) => void; // Still emits File[] for parent to handle upload
   initialImageUrls?: string[]; // To display existing images
+  label?: string; // Custom label for the upload section
 }
 
-export const ImageUpload = ({ onFilesChange, initialImageUrls = [] }: ImageUploadProps) => {
+export const ImageUpload = ({ onFilesChange, initialImageUrls = [], label = "Photos de l'incident" }: ImageUploadProps) => {
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>(initialImageUrls); // Can include initial URLs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -60,7 +61,7 @@ export const ImageUpload = ({ onFilesChange, initialImageUrls = [] }: ImageUploa
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">Photos de l'incident</label>
+      <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
       <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
         <label htmlFor="photo-upload" className="cursor-pointer">
           <Icon name="Camera" className="mx-auto text-4xl text-gray-400 mb-2" />

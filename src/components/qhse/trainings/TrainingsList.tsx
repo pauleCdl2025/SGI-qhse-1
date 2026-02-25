@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { PRESTATAIRES } from "@/utils/prestataires";
 
 const trainingTypeLabels: Record<TrainingType, string> = {
   interne: "Interne",
@@ -54,9 +55,15 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
   const [selectedTraining, setSelectedTraining] = useState<Training | null>(null);
   const [isTrainingDetailsDialogOpen, setIsTrainingDetailsDialogOpen] = useState(false);
 
+  // Filtrer pour ne montrer que les formations avec prestataires (évaluations)
+  const evaluationsWithPrestataires = useMemo(() => 
+    trainings.filter(t => t.prestataire && t.prestataire.trim() !== ''),
+    [trainings]
+  );
+
   const { filteredData: filteredTrainings, searchQuery, setSearchQuery } = useFilterAndSearch(
-    trainings,
-    ['title', 'category', 'description']
+    evaluationsWithPrestataires,
+    ['title', 'category', 'description', 'prestataire']
   );
 
   const loadData = async () => {
@@ -72,6 +79,7 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
         ...training,
         planned_date: training.planned_date ? new Date(training.planned_date) : undefined,
         actual_date: training.actual_date ? new Date(training.actual_date) : undefined,
+        prestataire_note: training.prestataire_note ? parseFloat(training.prestataire_note) : undefined,
         created_at: new Date(training.created_at),
         updated_at: new Date(training.updated_at),
       })));
@@ -242,93 +250,114 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
     return needs.slice(0, 6);
   }, [overdueTrainings, expiringCompetencies]);
 
+  // Calculer les statistiques pour les prestataires
+  const prestatairesStats = useMemo(() => {
+    const statsMap = new Map<string, { count: number; totalNote: number; countWithNote: number }>();
+    
+    evaluationsWithPrestataires.forEach(training => {
+      if (training.prestataire) {
+        const existing = statsMap.get(training.prestataire) || { count: 0, totalNote: 0, countWithNote: 0 };
+        existing.count++;
+        if (training.prestataire_note) {
+          existing.totalNote += training.prestataire_note;
+          existing.countWithNote++;
+        }
+        statsMap.set(training.prestataire, existing);
+      }
+    });
+
+    return Array.from(statsMap.entries()).map(([name, stats]) => ({
+      name,
+      count: stats.count,
+      averageNote: stats.countWithNote > 0 ? (stats.totalNote / stats.countWithNote).toFixed(1) : null,
+    }));
+  }, [evaluationsWithPrestataires]);
+
+  const totalEvaluations = useMemo(() => evaluationsWithPrestataires.length, [evaluationsWithPrestataires]);
+  const prestatairesCount = useMemo(() => prestatairesStats.length, [prestatairesStats]);
+  const evaluationsWithNote = useMemo(() => evaluationsWithPrestataires.filter(t => t.prestataire_note).length, [evaluationsWithPrestataires]);
+  const averageNote = useMemo(() => {
+    if (evaluationsWithNote > 0) {
+      return (evaluationsWithPrestataires.reduce((sum, t) => sum + (t.prestataire_note || 0), 0) / evaluationsWithNote).toFixed(1);
+    }
+    return null;
+  }, [evaluationsWithPrestataires, evaluationsWithNote]);
+
   if (loading) {
     return <LoadingSpinner />;
   }
+
+  const stats = [
+    {
+      label: "Total évaluations",
+      value: totalEvaluations,
+      helper: "Évaluations enregistrées",
+      color: "text-cyan-600",
+    },
+    {
+      label: "Prestataires évalués",
+      value: prestatairesCount,
+      helper: "Nombre de prestataires",
+      color: "text-blue-600",
+    },
+    {
+      label: "Note moyenne",
+      value: averageNote ? `${averageNote}/10` : '-',
+      helper: "Toutes évaluations",
+      color: averageNote ? "text-green-600" : "text-gray-500",
+    },
+    {
+      label: "Évaluations notées",
+      value: evaluationsWithNote,
+      helper: "Avec note sur 10",
+      color: "text-teal-600",
+    },
+  ];
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <CardTitle className="flex items-center flex-wrap gap-2">
           <Icon name="GraduationCap" className="text-cyan-600" />
-          Formations & compétences QHSE
+          Évaluation QHSE
         </CardTitle>
         <div className="flex flex-wrap gap-2">
           <Dialog open={isTrainingDialogOpen} onOpenChange={setIsTrainingDialogOpen}>
             <DialogTrigger asChild>
               <Button className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600">
-                <Icon name="Plus" className="mr-2 h-4 w-4" /> Nouvelle formation
+                <Icon name="Plus" className="mr-2 h-4 w-4" /> Nouvelle évaluation
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Créer une nouvelle formation</DialogTitle>
+                <DialogTitle>Nouvelle évaluation de prestataire</DialogTitle>
               </DialogHeader>
               <TrainingForm onSubmit={handleCreateTraining} onCancel={() => setIsTrainingDialogOpen(false)} />
             </DialogContent>
           </Dialog>
-          <Button variant="outline" onClick={() => {
-            setSelectedTrainingId('');
-            setIsParticipationDialogOpen(true);
-          }}>
-            <Icon name="UserPlus" className="mr-2 h-4 w-4" />
-            Ajouter une participation
-          </Button>
-          <Button variant="outline" onClick={() => setIsCompetencyDialogOpen(true)}>
-            <Icon name="ShieldCheck" className="mr-2 h-4 w-4" />
-            Ajouter une habilitation
-          </Button>
         </div>
       </CardHeader>
       <CardContent>
-        <StatsGrid
-          trainings={trainings}
-          overdueTrainings={overdueTrainings}
-          expiringCertificates={expiringCertificates}
-          trainingNeeds={trainingNeeds}
-        />
-
-        <AlertsGrid
-          upcomingTrainings={upcomingTrainings}
-          expiringCertificates={expiringCertificates}
-          expiringCompetencies={expiringCompetencies}
-        />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          {stats.map((stat) => (
+            <Card key={stat.label} className="border border-slate-200">
+              <CardContent className="p-4">
+                <p className="text-sm text-slate-500">{stat.label}</p>
+                <p className={`text-3xl font-semibold ${stat.color}`}>{stat.value}</p>
+                <p className="text-xs text-slate-500">{stat.helper}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
         <SearchBar searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
 
-        <TrainingsTable
+        <PrestatairesEvaluationTable
           trainings={filteredTrainings}
-          participantsByTraining={participantsByTraining}
-          onAddParticipant={(trainingId) => {
-            setSelectedTrainingId(trainingId);
-            setIsParticipationDialogOpen(true);
-          }}
           onViewTraining={handleViewTraining}
         />
-
-        <CompetenciesTable competencies={competencies} />
-
-        <TrainingNeedsCard trainingNeeds={trainingNeeds} />
       </CardContent>
 
-      <AddParticipationDialog
-        isOpen={isParticipationDialogOpen}
-        onClose={() => {
-          setIsParticipationDialogOpen(false);
-          setSelectedTrainingId('');
-        }}
-        onSubmit={handleAddParticipation}
-        trainings={trainings}
-        users={users}
-        defaultTrainingId={selectedTrainingId}
-      />
-
-      <AddCompetencyDialog
-        isOpen={isCompetencyDialogOpen}
-        onClose={() => setIsCompetencyDialogOpen(false)}
-        onSubmit={handleAddCompetency}
-        users={users}
-      />
 
       {selectedTraining && (
         <TrainingDetailsDialog
@@ -342,73 +371,12 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
           onDelete={handleDeleteTraining}
           participants={participations.filter(p => p.training_id === selectedTraining.id)}
           users={users}
-          onAddParticipant={(trainingId) => {
-            setSelectedTrainingId(trainingId);
-            setIsParticipationDialogOpen(true);
-          }}
         />
       )}
     </Card>
   );
 };
 
-const StatsGrid = ({
-  trainings,
-  overdueTrainings,
-  expiringCertificates,
-  trainingNeeds,
-}: {
-  trainings: Training[];
-  overdueTrainings: Training[];
-  expiringCertificates: TrainingParticipation[];
-  trainingNeeds: {
-    type: string;
-    label: string;
-    detail: string;
-    severity: 'urgent' | 'warning';
-  }[];
-}) => {
-  const stats = [
-    {
-      label: "Formations planifiées",
-      value: trainings.filter((t) => t.status === 'planifiée').length,
-      helper: "Sessions à venir",
-      color: "text-cyan-600",
-    },
-    {
-      label: "Formations en retard",
-      value: overdueTrainings.length,
-      helper: "À reprogrammer",
-      color: overdueTrainings.length > 0 ? "text-orange-600" : "text-gray-500",
-    },
-    {
-      label: "Certificats à renouveler (<30j)",
-      value: expiringCertificates.length,
-      helper: "Alertes habilitations",
-      color: expiringCertificates.length > 0 ? "text-red-600" : "text-gray-500",
-    },
-    {
-      label: "Besoins identifiés",
-      value: trainingNeeds.length,
-      helper: "Formations prioritaires",
-      color: trainingNeeds.length > 0 ? "text-teal-600" : "text-gray-500",
-    },
-  ];
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-      {stats.map((stat) => (
-        <Card key={stat.label} className="border border-slate-200">
-          <CardContent className="p-4">
-            <p className="text-sm text-slate-500">{stat.label}</p>
-            <p className={`text-3xl font-semibold ${stat.color}`}>{stat.value}</p>
-            <p className="text-xs text-slate-500">{stat.helper}</p>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-};
 
 const AlertsGrid = ({
   upcomingTrainings,
@@ -492,7 +460,7 @@ const SearchBar = ({ searchQuery, setSearchQuery }: { searchQuery: string; setSe
       <Icon name="Search" className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <Input
         type="text"
-        placeholder="Rechercher par titre, catégorie..."
+        placeholder="Rechercher par prestataire, titre, catégorie..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
         className="pl-10"
@@ -500,6 +468,83 @@ const SearchBar = ({ searchQuery, setSearchQuery }: { searchQuery: string; setSe
     </div>
   </div>
 );
+
+const PrestatairesEvaluationTable = ({
+  trainings,
+  onViewTraining,
+}: {
+  trainings: Training[];
+  onViewTraining: (training: Training) => void;
+}) => {
+  return (
+    <div className="border rounded-lg overflow-hidden mb-6">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Prestataire</TableHead>
+            <TableHead>Titre de l'évaluation</TableHead>
+            <TableHead>Catégorie</TableHead>
+            <TableHead>Date</TableHead>
+            <TableHead>Note</TableHead>
+            <TableHead>Statut</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {trainings.length > 0 ? trainings.map((training) => {
+            return (
+              <TableRow key={training.id}>
+                <TableCell className="font-medium">
+                  <Badge variant="outline" className="text-blue-700 border-blue-200">
+                    {training.prestataire}
+                  </Badge>
+                </TableCell>
+                <TableCell className="font-medium">{training.title}</TableCell>
+                <TableCell>{training.category}</TableCell>
+                <TableCell>
+                  {training.planned_date ? format(training.planned_date, 'dd/MM/yyyy') : 
+                   training.actual_date ? format(training.actual_date, 'dd/MM/yyyy') : '-'}
+                </TableCell>
+                <TableCell>
+                  {training.prestataire_note ? (
+                    <Badge className={training.prestataire_note >= 8 ? "bg-green-100 text-green-700" : 
+                                     training.prestataire_note >= 6 ? "bg-yellow-100 text-yellow-700" : 
+                                     "bg-red-100 text-red-700"}>
+                      {training.prestataire_note}/10
+                    </Badge>
+                  ) : (
+                    <span className="text-gray-400">Non noté</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Badge className={statusColors[training.status]}>
+                    {statusLabels[training.status]}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => onViewTraining(training)}
+                  >
+                    <Icon name="Eye" className="h-4 w-4 mr-1" />
+                    Voir détails
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          }) : (
+            <TableRow>
+              <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                Aucune évaluation de prestataire enregistrée.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
 
 const TrainingsTable = ({
   trainings,
@@ -666,20 +711,27 @@ const TrainingNeedsCard = ({ trainingNeeds }: { trainingNeeds: { type: string; l
   </Card>
 );
 
-const TrainingForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; onCancel: () => void }) => {
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('');
-  const [trainingType, setTrainingType] = useState<TrainingType>('interne');
-  const [description, setDescription] = useState('');
-  const [durationHours, setDurationHours] = useState('');
-  const [plannedDate, setPlannedDate] = useState('');
-  const [location, setLocation] = useState('');
-  const [maxParticipants, setMaxParticipants] = useState('');
-  const [certificateRequired, setCertificateRequired] = useState(false);
-  const [validityMonths, setValidityMonths] = useState('');
+const TrainingForm = ({ onSubmit, onCancel, training }: { onSubmit: (data: any) => void; onCancel: () => void; training?: Training | null }) => {
+  const [title, setTitle] = useState(training?.title || '');
+  const [category, setCategory] = useState(training?.category || '');
+  const [trainingType, setTrainingType] = useState<TrainingType>(training?.training_type || 'interne');
+  const [description, setDescription] = useState(training?.description || '');
+  const [durationHours, setDurationHours] = useState(training?.duration_hours?.toString() || '');
+  const [plannedDate, setPlannedDate] = useState(training?.planned_date ? format(training.planned_date, 'yyyy-MM-dd') : '');
+  const [location, setLocation] = useState(training?.location || '');
+  const [maxParticipants, setMaxParticipants] = useState(training?.max_participants?.toString() || '');
+  const [certificateRequired, setCertificateRequired] = useState(training?.certificate_required || false);
+  const [validityMonths, setValidityMonths] = useState(training?.validity_months?.toString() || '');
+  const [prestataire, setPrestataire] = useState(training?.prestataire || '');
+  const [prestataireNote, setPrestataireNote] = useState(training?.prestataire_note?.toString() || '');
+  const [prestataireEvaluation, setPrestataireEvaluation] = useState(training?.prestataire_evaluation || '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!prestataire || prestataire.trim() === '') {
+      showError('Veuillez sélectionner un prestataire');
+      return;
+    }
     onSubmit({
       title,
       category,
@@ -691,6 +743,9 @@ const TrainingForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; o
       max_participants: maxParticipants ? parseInt(maxParticipants) : null,
       certificate_required: certificateRequired,
       validity_months: validityMonths ? parseInt(validityMonths) : null,
+      prestataire: prestataire,
+      prestataire_note: prestataireNote ? parseFloat(prestataireNote) : null,
+      prestataire_evaluation: prestataireEvaluation || null,
     });
   };
 
@@ -702,20 +757,31 @@ const TrainingForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; o
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label>Catégorie *</Label>
-          <Input value={category} onChange={(e) => setCategory(e.target.value)} required />
-        </div>
-        <div>
-          <Label>Type *</Label>
-          <Select value={trainingType} onValueChange={(v) => setTrainingType(v as TrainingType)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+          <Label>Prestataire *</Label>
+          <Select value={prestataire || undefined} onValueChange={setPrestataire} required>
+            <SelectTrigger><SelectValue placeholder="Sélectionner un prestataire" /></SelectTrigger>
             <SelectContent>
-              {Object.entries(trainingTypeLabels).map(([value, label]) => (
-                <SelectItem key={value} value={value}>{label}</SelectItem>
+              {PRESTATAIRES.map((p) => (
+                <SelectItem key={p} value={p}>{p}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
+        <div>
+          <Label>Catégorie *</Label>
+          <Input value={category} onChange={(e) => setCategory(e.target.value)} required placeholder="Ex: Formation, Audit, etc." />
+        </div>
+      </div>
+      <div>
+        <Label>Type de prestation</Label>
+        <Select value={trainingType} onValueChange={(v) => setTrainingType(v as TrainingType)}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Object.entries(trainingTypeLabels).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div>
         <Label>Description</Label>
@@ -756,9 +822,49 @@ const TrainingForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; o
           </div>
         )}
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Prestataire</Label>
+          <Select value={prestataire} onValueChange={setPrestataire}>
+            <SelectTrigger><SelectValue placeholder="Sélectionner un prestataire" /></SelectTrigger>
+            <SelectContent>
+              {PRESTATAIRES.map((p) => (
+                <SelectItem key={p} value={p}>{p}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {prestataire && (
+          <div>
+            <Label>Note du prestataire (sur 10)</Label>
+            <Input 
+              type="number" 
+              min="0" 
+              max="10" 
+              step="0.1" 
+              value={prestataireNote} 
+              onChange={(e) => setPrestataireNote(e.target.value)} 
+              placeholder="Ex: 8.5" 
+            />
+          </div>
+        )}
+      </div>
+      {prestataire && (
+        <div>
+          <Label>Évaluation du prestataire</Label>
+          <Textarea 
+            value={prestataireEvaluation} 
+            onChange={(e) => setPrestataireEvaluation(e.target.value)} 
+            rows={3} 
+            placeholder="Commentaires sur la prestation..."
+          />
+        </div>
+      )}
       <div className="flex justify-end space-x-2">
         <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
-        <Button type="submit" className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600">Créer</Button>
+        <Button type="submit" className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600">
+          {training ? 'Modifier' : 'Créer'}
+        </Button>
       </div>
     </form>
   );
@@ -1090,7 +1196,6 @@ interface TrainingDetailsDialogProps {
   onDelete: (trainingId: string) => void;
   participants: TrainingParticipation[];
   users?: Users;
-  onAddParticipant: (trainingId: string) => void;
 }
 
 const TrainingDetailsDialog = ({
@@ -1101,7 +1206,6 @@ const TrainingDetailsDialog = ({
   onDelete,
   participants,
   users,
-  onAddParticipant,
 }: TrainingDetailsDialogProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(training.title);
@@ -1115,6 +1219,9 @@ const TrainingDetailsDialog = ({
   const [certificateRequired, setCertificateRequired] = useState(training.certificate_required);
   const [validityMonths, setValidityMonths] = useState(training.validity_months?.toString() || '');
   const [status, setStatus] = useState<TrainingStatus>(training.status);
+  const [prestataire, setPrestataire] = useState(training.prestataire || '');
+  const [prestataireNote, setPrestataireNote] = useState(training.prestataire_note?.toString() || '');
+  const [prestataireEvaluation, setPrestataireEvaluation] = useState(training.prestataire_evaluation || '');
 
   useEffect(() => {
     if (!isEditing) {
@@ -1129,6 +1236,9 @@ const TrainingDetailsDialog = ({
       setCertificateRequired(training.certificate_required);
       setValidityMonths(training.validity_months?.toString() || '');
       setStatus(training.status);
+      setPrestataire(training.prestataire || '');
+      setPrestataireNote(training.prestataire_note?.toString() || '');
+      setPrestataireEvaluation(training.prestataire_evaluation || '');
     }
   }, [training, isEditing]);
 
@@ -1145,6 +1255,9 @@ const TrainingDetailsDialog = ({
       certificate_required: certificateRequired,
       validity_months: validityMonths ? parseInt(validityMonths) : null,
       status,
+      prestataire: prestataire || null,
+      prestataire_note: prestataireNote ? parseFloat(prestataireNote) : null,
+      prestataire_evaluation: prestataireEvaluation || null,
     });
     setIsEditing(false);
   };
@@ -1291,6 +1404,54 @@ const TrainingDetailsDialog = ({
                 )}
               </div>
               <div>
+                <Label className="text-sm font-semibold text-gray-700">Prestataire</Label>
+                {isEditing ? (
+                  <Select value={prestataire} onValueChange={setPrestataire}>
+                    <SelectTrigger><SelectValue placeholder="Sélectionner un prestataire" /></SelectTrigger>
+                    <SelectContent>
+                      {PRESTATAIRES.map((p) => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p>{training.prestataire || 'Non spécifié'}</p>
+                )}
+              </div>
+              {prestataire && (
+                <>
+                  <div>
+                    <Label className="text-sm font-semibold text-gray-700">Note du prestataire (sur 10)</Label>
+                    {isEditing ? (
+                      <Input 
+                        type="number" 
+                        min="0" 
+                        max="10" 
+                        step="0.1" 
+                        value={prestataireNote} 
+                        onChange={(e) => setPrestataireNote(e.target.value)} 
+                        placeholder="Ex: 8.5" 
+                      />
+                    ) : (
+                      <p>{training.prestataire_note ? `${training.prestataire_note}/10` : 'Non noté'}</p>
+                    )}
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-sm font-semibold text-gray-700">Évaluation du prestataire</Label>
+                    {isEditing ? (
+                      <Textarea 
+                        value={prestataireEvaluation} 
+                        onChange={(e) => setPrestataireEvaluation(e.target.value)} 
+                        rows={3} 
+                        placeholder="Commentaires sur la prestation..."
+                      />
+                    ) : (
+                      <p className="whitespace-pre-wrap">{training.prestataire_evaluation || 'Aucune évaluation'}</p>
+                    )}
+                  </div>
+                </>
+              )}
+              <div>
                 <Label className="text-sm font-semibold text-gray-700">Date planifiée</Label>
                 {isEditing ? (
                   <Input type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
@@ -1361,17 +1522,6 @@ const TrainingDetailsDialog = ({
           <div>
             <div className="flex items-center justify-between mb-3">
               <Label className="text-sm font-semibold text-gray-700">Participants ({participants.length})</Label>
-              <Button 
-                size="sm" 
-                variant="outline"
-                onClick={() => {
-                  onAddParticipant(training.id);
-                  onClose();
-                }}
-              >
-                <Icon name="UserPlus" className="mr-2 h-4 w-4" />
-                Ajouter un participant
-              </Button>
             </div>
             {participants.length > 0 ? (
               <div className="border rounded-lg overflow-hidden">
@@ -1434,18 +1584,6 @@ const TrainingDetailsDialog = ({
                 <CardContent className="p-8 text-center">
                   <Icon name="UserPlus" className="mx-auto text-4xl text-gray-300 mb-2" />
                   <p className="text-gray-500">Aucun participant enregistré</p>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    className="mt-4"
-                    onClick={() => {
-                      onAddParticipant(training.id);
-                      onClose();
-                    }}
-                  >
-                    <Icon name="UserPlus" className="mr-2 h-4 w-4" />
-                    Ajouter un participant
-                  </Button>
                 </CardContent>
               </Card>
             )}

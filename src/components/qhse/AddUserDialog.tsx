@@ -84,6 +84,7 @@ export const AddUserDialog = ({ onAddUser, currentUserRole, isOpen, onOpenChange
             <SelectItem value="medecin">Médecin</SelectItem>
             <SelectItem value="buandiere">Buandière</SelectItem>
             <SelectItem value="technicien_polyvalent">Technicien Polyvalent</SelectItem>
+            <SelectItem value="administrateur_reseau">Administrateur Réseau</SelectItem>
           </>
         );
       case 'superviseur_qhse':
@@ -100,6 +101,7 @@ export const AddUserDialog = ({ onAddUser, currentUserRole, isOpen, onOpenChange
             <SelectItem value="medecin">Médecin</SelectItem>
             <SelectItem value="buandiere">Buandière</SelectItem>
             <SelectItem value="technicien_polyvalent">Technicien Polyvalent</SelectItem>
+            <SelectItem value="administrateur_reseau">Administrateur Réseau</SelectItem>
           </>
         );
       case 'superviseur_agent_securite':

@@ -79,7 +79,9 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
           <div>
             <div className="flex items-center mb-3">
               <Icon name="UserCog" className="text-4xl mr-3" />
-              <h1 className="text-4xl font-bold">Portail QHSE</h1>
+              <h1 className="text-4xl font-bold">
+                {user.role === 'assistante_qhse' ? 'Portail Assistante QHSE' : 'Portail QHSE'}
+              </h1>
             </div>
             <p className="text-cyan-100 text-xl">
               {user.civility} {user.first_name} {user.last_name} - {user.role === 'assistante_qhse' ? 'Assistante Qualité, Hygiène, Sécurité et Environnement' : 'Superviseur Qualité, Hygiène, Sécurité et Environnement'}
@@ -195,12 +197,21 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
             </CardContent>
           </Card>
         )}
+        {hasPermission('qhseWorks') && (
+          <Card className="card-hover cursor-pointer" onClick={() => onNavigate('qhseWorks')}>
+            <CardContent className="p-6">
+              <Icon name="Wrench" className="text-indigo-600 mb-3 text-3xl" />
+              <h3 className="font-semibold mb-2">Gestion des Travaux</h3>
+              <p className="text-sm text-gray-600">Suivre les travaux et interventions</p>
+            </CardContent>
+          </Card>
+        )}
         {hasPermission('qhseTrainings') && (
           <Card className="card-hover cursor-pointer" onClick={() => onNavigate('qhseTrainings')}>
             <CardContent className="p-6">
               <Icon name="GraduationCap" className="text-green-600 mb-3 text-3xl" />
-              <h3 className="font-semibold mb-2">Formations</h3>
-              <p className="text-sm text-gray-600">Gérer les formations</p>
+              <h3 className="font-semibold mb-2">Évaluation</h3>
+              <p className="text-sm text-gray-600">Gérer les évaluations</p>
             </CardContent>
           </Card>
         )}
@@ -246,6 +257,15 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
               <Icon name="Droplet" className="text-red-600 mb-3 text-3xl" />
               <h3 className="font-semibold mb-2">Gestion des AES</h3>
               <p className="text-sm text-gray-600">Accidents d'Exposition au Sang</p>
+            </CardContent>
+          </Card>
+        )}
+        {hasPermission('cameraAccessRequestsTraceability') && (
+          <Card className="card-hover cursor-pointer" onClick={() => onNavigate('cameraAccessRequestsTraceability')}>
+            <CardContent className="p-6">
+              <Icon name="Video" className="text-blue-600 mb-3 text-3xl" />
+              <h3 className="font-semibold mb-2">Traçabilité Accès Caméras</h3>
+              <p className="text-sm text-gray-600">Suivi des demandes d'accès</p>
             </CardContent>
           </Card>
         )}

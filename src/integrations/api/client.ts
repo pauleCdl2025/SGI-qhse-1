@@ -80,6 +80,13 @@ class ApiClient {
     });
   }
 
+  async resetUserPassword(userId: string, newPassword: string) {
+    return this.request<{ success: boolean; message: string }>(`/auth/reset-password/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ password: newPassword }),
+    });
+  }
+
   // Profils
   async getProfiles() {
     return this.request<any[]>('/profiles');
@@ -356,6 +363,38 @@ class ApiClient {
     });
   }
 
+  async uploadWasteImages(files: File[]) {
+    const formData = new FormData();
+    files.forEach(file => formData.append('images', file));
+
+    const response = await fetch(`${API_BASE_URL}/medical-waste/upload-images`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erreur lors de l\'upload des images');
+      } else {
+        const text = await response.text();
+        throw new Error(`Erreur serveur (${response.status}): ${text.substring(0, 100)}`);
+      }
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return response.json();
+    } else {
+      const text = await response.text();
+      throw new Error(`Réponse invalide du serveur: ${text.substring(0, 100)}`);
+    }
+  }
+
   async updateMedicalWaste(id: string, data: any) {
     return this.request(`/medical-waste/${id}`, {
       method: 'PUT',
@@ -513,6 +552,106 @@ class ApiClient {
 
   async deleteAuditActionPlan(actionPlanId: string) {
     return this.request(`/audits/action-plans/${actionPlanId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Works (Gestion des travaux)
+  async getWorks() {
+    return this.request<Work[]>('/works');
+  }
+
+  async createWork(work: any) {
+    return this.request('/works', {
+      method: 'POST',
+      body: JSON.stringify(work),
+    });
+  }
+
+  async updateWork(workId: string, data: any) {
+    return this.request(`/works/${workId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteWork(workId: string) {
+    return this.request(`/works/${workId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Network Equipment (Matériel Réseau)
+  async getNetworkEquipment() {
+    return this.request<any[]>('/network/equipment');
+  }
+
+  async createNetworkEquipment(equipment: any) {
+    return this.request('/network/equipment', {
+      method: 'POST',
+      body: JSON.stringify(equipment),
+    });
+  }
+
+  async updateNetworkEquipment(equipmentId: string, data: any) {
+    return this.request(`/network/equipment/${equipmentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNetworkEquipment(equipmentId: string) {
+    return this.request(`/network/equipment/${equipmentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Network Subscriptions (Abonnements Réseau)
+  async getNetworkSubscriptions() {
+    return this.request<any[]>('/network/subscriptions');
+  }
+
+  async createNetworkSubscription(subscription: any) {
+    return this.request('/network/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    });
+  }
+
+  async updateNetworkSubscription(subscriptionId: string, data: any) {
+    return this.request(`/network/subscriptions/${subscriptionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNetworkSubscription(subscriptionId: string) {
+    return this.request(`/network/subscriptions/${subscriptionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Network Inventory (Inventaire Réseau)
+  async getNetworkInventory() {
+    return this.request<any[]>('/network/inventory');
+  }
+
+  async createNetworkInventoryItem(item: any) {
+    return this.request('/network/inventory', {
+      method: 'POST',
+      body: JSON.stringify(item),
+    });
+  }
+
+  async updateNetworkInventoryItem(itemId: string, data: any) {
+    return this.request(`/network/inventory/${itemId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNetworkInventoryItem(itemId: string) {
+    return this.request(`/network/inventory/${itemId}`, {
       method: 'DELETE',
     });
   }

@@ -62,7 +62,7 @@ const validateSignup = (req, res, next) => {
     'agent_securite', 'agent_entretien', 'technicien', 'superviseur_qhse',
     'assistante_qhse', 'superadmin', 'secretaire', 'superviseur_agent_securite',
     'superviseur_agent_entretien', 'superviseur_technicien', 'medecin', 'biomedical',
-    'dop', 'Infirmier', 'buandiere', 'employe', 'technicien_polyvalent'
+    'dop', 'Infirmier', 'buandiere', 'employe', 'technicien_polyvalent', 'administrateur_reseau'
   ];
   if (!role || !validRoles.includes(role)) {
     return res.status(400).json({ error: 'Rôle invalide' });

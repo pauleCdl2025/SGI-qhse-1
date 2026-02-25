@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { ImageUpload } from "@/components/shared/ImageUpload";
 
 const wasteTypeLabels: Record<WasteType, string> = {
   DASRI: "DASRI",
@@ -44,6 +45,8 @@ export const MedicalWasteList = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedWaste, setSelectedWaste] = useState<MedicalWaste | null>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
 
   const { filteredData: filteredWaste, searchQuery, setSearchQuery } = useFilterAndSearch(
     waste,
@@ -54,18 +57,40 @@ export const MedicalWasteList = () => {
     fetchWaste();
   }, []);
 
+  const getPhotoUrl = (url: string): string => {
+    if (!url) return '';
+    // Si l'URL est déjà absolue, la retourner telle quelle
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    // Si l'URL commence par /uploads, ajouter le base URL
+    if (url.startsWith('/uploads')) {
+      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      return `${apiBaseUrl}${url}`;
+    }
+    // Si l'URL commence par uploads (sans slash), ajouter le base URL avec slash
+    if (url.startsWith('uploads')) {
+      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      return `${apiBaseUrl}/${url}`;
+    }
+    return url;
+  };
+
   const fetchWaste = async () => {
     try {
       setLoading(true);
       const data = await apiClient.getMedicalWaste();
-      setWaste(data.map((w: any) => ({
-        ...w,
-        collection_date: new Date(w.collection_date),
-        treatment_date: w.treatment_date ? new Date(w.treatment_date) : undefined,
-        created_at: new Date(w.created_at),
-        updated_at: new Date(w.updated_at),
-        photo_urls: w.photo_urls ? (Array.isArray(w.photo_urls) ? w.photo_urls : JSON.parse(w.photo_urls)) : [],
-      })));
+      setWaste(data.map((w: any) => {
+        const photoUrls = w.photo_urls ? (Array.isArray(w.photo_urls) ? w.photo_urls : JSON.parse(w.photo_urls)) : [];
+        return {
+          ...w,
+          collection_date: new Date(w.collection_date),
+          treatment_date: w.treatment_date ? new Date(w.treatment_date) : undefined,
+          created_at: new Date(w.created_at),
+          updated_at: new Date(w.updated_at),
+          photo_urls: photoUrls.map((url: string) => getPhotoUrl(url)),
+        };
+      }));
     } catch (error: any) {
       showError("Erreur lors du chargement des déchets: " + error.message);
     } finally {
@@ -73,9 +98,26 @@ export const MedicalWasteList = () => {
     }
   };
 
-  const handleCreateWaste = async (wasteData: any) => {
+  const handleCreateWaste = async (wasteData: any, photoFiles: File[] = []) => {
     try {
-      await apiClient.createMedicalWaste(wasteData);
+      let photoUrls: string[] = [];
+      
+      // Upload des photos si elles existent
+      if (photoFiles.length > 0) {
+        try {
+          const uploadResult = await apiClient.uploadWasteImages(photoFiles);
+          photoUrls = uploadResult.urls || [];
+        } catch (uploadError: any) {
+          showError("Erreur lors de l'upload des photos: " + uploadError.message);
+          return;
+        }
+      }
+      
+      // Créer le déchet avec les URLs des photos
+      await apiClient.createMedicalWaste({
+        ...wasteData,
+        photo_urls: photoUrls,
+      });
       showSuccess("Déchet enregistré avec succès");
       setIsDialogOpen(false);
       fetchWaste();
@@ -162,6 +204,7 @@ export const MedicalWasteList = () => {
               <TableHead>Date</TableHead>
               <TableHead>Numéro de suivi</TableHead>
               <TableHead>Statut</TableHead>
+              <TableHead>Photo</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -181,6 +224,37 @@ export const MedicalWasteList = () => {
                   </Badge>
                 </TableCell>
                 <TableCell>
+                  {w.photo_urls && w.photo_urls.length > 0 ? (
+                    <div className="flex gap-1">
+                      {w.photo_urls.slice(0, 3).map((photoUrl, index) => (
+                        <img
+                          key={index}
+                          src={photoUrl}
+                          alt={`Photo ${index + 1}`}
+                          className="w-10 h-10 object-cover rounded cursor-pointer border border-gray-200 hover:border-cyan-600 transition"
+                          onClick={() => {
+                            setSelectedPhoto(photoUrl);
+                            setIsPhotoDialogOpen(true);
+                          }}
+                        />
+                      ))}
+                      {w.photo_urls.length > 3 && (
+                        <div
+                          className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-200 transition"
+                          onClick={() => {
+                            setSelectedPhoto(w.photo_urls![0]);
+                            setIsPhotoDialogOpen(true);
+                          }}
+                        >
+                          +{w.photo_urls.length - 3}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 text-sm">-</span>
+                  )}
+                </TableCell>
+                <TableCell>
                   <Button 
                     size="sm" 
                     variant="outline"
@@ -192,7 +266,7 @@ export const MedicalWasteList = () => {
               </TableRow>
             )) : (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
+                <TableCell colSpan={8} className="text-center py-8">
                   <Icon name="Trash2" className="mx-auto text-4xl text-gray-300 mb-2" />
                   {searchQuery ? 'Aucun déchet ne correspond à votre recherche.' : 'Aucun déchet enregistré.'}
                 </TableCell>
@@ -215,11 +289,29 @@ export const MedicalWasteList = () => {
           onDelete={handleDeleteWaste}
         />
       )}
+
+      {/* Dialog pour afficher la photo en grand */}
+      <Dialog open={isPhotoDialogOpen} onOpenChange={setIsPhotoDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Photo du déchet</DialogTitle>
+          </DialogHeader>
+          {selectedPhoto && (
+            <div className="flex justify-center">
+              <img
+                src={selectedPhoto}
+                alt="Photo du déchet"
+                className="max-w-full max-h-[70vh] object-contain rounded-lg"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
 
-const WasteForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; onCancel: () => void }) => {
+const WasteForm = ({ onSubmit, onCancel }: { onSubmit: (data: any, photoFiles: File[]) => void; onCancel: () => void }) => {
   const [wasteType, setWasteType] = useState<WasteType>('DASRI');
   const [category, setCategory] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -227,6 +319,7 @@ const WasteForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; onCa
   const [collectionDate, setCollectionDate] = useState('');
   const [collectionLocation, setCollectionLocation] = useState('');
   const [wasteCode, setWasteCode] = useState('');
+  const [photos, setPhotos] = useState<File[]>([]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -238,7 +331,7 @@ const WasteForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; onCa
       collection_date: collectionDate,
       collection_location: collectionLocation,
       waste_code: wasteCode || null,
-    });
+    }, photos);
   };
 
   return (
@@ -291,6 +384,9 @@ const WasteForm = ({ onSubmit, onCancel }: { onSubmit: (data: any) => void; onCa
           <Input value={wasteCode} onChange={(e) => setWasteCode(e.target.value)} />
         </div>
       </div>
+      
+      <ImageUpload onFilesChange={setPhotos} label="Photos du déchet" />
+      
       <div className="flex justify-end space-x-2">
         <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
         <Button type="submit" className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600">Enregistrer</Button>
@@ -567,6 +663,28 @@ const WasteDetailsDialog = ({ waste, isOpen, onClose, onUpdate, onDelete }: Wast
               <p className="text-gray-700 whitespace-pre-wrap">{waste.notes || 'Aucune note'}</p>
             )}
           </div>
+
+          {/* Photos */}
+          {waste.photo_urls && waste.photo_urls.length > 0 && (
+            <div>
+              <Label className="text-sm font-semibold text-gray-700 mb-3 block">Photos</Label>
+              <div className="grid grid-cols-3 gap-4">
+                {waste.photo_urls.map((photoUrl, index) => (
+                  <div key={index} className="relative group">
+                    <img
+                      src={photoUrl}
+                      alt={`Photo ${index + 1}`}
+                      className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:border-cyan-600 transition"
+                      onClick={() => {
+                        // Ouvrir la photo en grand dans une nouvelle fenêtre ou un dialog
+                        window.open(photoUrl, '_blank');
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

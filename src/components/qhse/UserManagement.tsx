@@ -31,6 +31,7 @@ const roleDisplay: Record<User['role'], string> = {
     medecin: "Médecin",
     buandiere: "Buandière",
     technicien_polyvalent: "Technicien Polyvalent",
+    administrateur_reseau: "Administrateur Réseau",
 };
 
 const roleColors: Record<User['role'], string> = {
@@ -47,6 +48,7 @@ const roleColors: Record<User['role'], string> = {
     medecin: "bg-red-100 text-red-700 border-red-300",
     buandiere: "bg-teal-100 text-teal-700 border-teal-300",
     technicien_polyvalent: "bg-orange-100 text-orange-700 border-orange-300",
+    administrateur_reseau: "bg-indigo-100 text-indigo-700 border-indigo-300",
 };
 
 const getEffectivePermissions = (user: User) => {

@@ -31,6 +31,7 @@ const statusColors: Record<RoundStatus, string> = {
 const roundTypeLabels: Record<RoundType, string> = {
   biomedical: "Biomédical",
   technicien_polyvalent: "Technicien Polyvalent",
+  reseau: "Réseau",
 };
 
 interface DailyRoundsListProps {

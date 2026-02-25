@@ -12,7 +12,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-import { SuperAdminPortal, AgentSecuritePortal, AgentEntretienPortal, TechnicienPortal, SuperviseurQHSEPortal, MedecinPortal, SecretairePortal, SuperviseurSecuritePortal, BiomedicalPortal, UserPortal, BuanderiePortal, TechnicienPolyvalentPortal } from '@/components/portals';
+import { SuperAdminPortal, AgentSecuritePortal, AgentEntretienPortal, TechnicienPortal, SuperviseurQHSEPortal, MedecinPortal, SecretairePortal, SuperviseurSecuritePortal, BiomedicalPortal, UserPortal, BuanderiePortal, TechnicienPolyvalentPortal, AdministrateurReseauPortal } from '@/components/portals';
 // Import des nouveaux composants de tableau de bord
 import { SuperadminDashboard } from '@/components/dashboards/SuperadminDashboard';
 import { SecurityDashboard } from '@/components/dashboards/SecurityDashboard';
@@ -44,9 +44,11 @@ import { TaskPlanning } from '@/components/qhse/TaskPlanning';
 import { PersonalInfo } from '@/components/shared/PersonalInfo';
 import { KpiDashboard } from '@/components/dashboards/KpiDashboard';
 import { GlobalRoomOverview } from '@/components/planning/GlobalRoomOverview'; // Import du nouveau composant
-import { AuditsList, TrainingsList, MedicalWasteList, SterilizationCyclesList, SterilizationRegisterList, RisksList, LaundryTrackingList, QHSEReportsModule } from '@/components/qhse';
+import { AuditsList, WorksList, TrainingsList, MedicalWasteList, SterilizationCyclesList, SterilizationRegisterList, RisksList, LaundryTrackingList, QHSEReportsModule } from '@/components/qhse';
 import { AESList } from '@/components/qhse/AESList';
+import { TableauSuiviAES } from '@/components/qhse/TableauSuiviAES';
 import { DailyRoundsList, DailyRoundsView } from '@/components/rounds';
+import { NetworkEquipmentList, NetworkSubscriptionsList } from '@/components/network';
 import { 
   filterIncidentsByRole, 
   filterVisitorsByRole, 
@@ -119,7 +121,7 @@ const MaintenanceDashboard = ({ incidents, allIncidents, addIncident, updateInci
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <DashboardCard title="Tâches Aujourd'hui" value={maintenanceIncidents.filter((i: Incident) => new Date(i.date_creation).toDateString() === new Date().toDateString()).length} iconName="ListChecks" colorClass="bg-blue-100 text-blue-600" />
             <DashboardCard title="En Attente" value={maintenanceIncidents.filter((i: Incident) => i.statut === 'nouveau' || i.statut === 'attente').length} iconName="Hourglass" colorClass="bg-yellow-100 text-yellow-600" />
-            <DashboardCard title="Terminées" value={maintenanceIncidents.filter((i: Incident) => i.statut === 'resolu').length} iconName="CheckCheck" colorClass="bg-green-100 text-green-600" onClick={() => setActiveTab('maintenanceHistory')} />
+            <DashboardCard title="Terminées" value={maintenanceIncidents.filter((i: Incident) => i.statut === 'resolu').length} iconName="CheckCheck" colorClass="bg-green-100 text-green-600" />
             <DashboardCard title="Urgentes" value={maintenanceIncidents.filter((i: Incident) => i.priorite === 'haute' || i.priorite === 'critique').length} iconName="AlertTriangle" colorClass="bg-red-100 text-red-600" />
         </div>
         <div className="space-y-6">
@@ -317,8 +319,14 @@ const BiomedicalDashboard = ({ biomedicalEquipment, addBiomedicalEquipment, upda
 const DashboardPage = (props: DashboardPageProps) => {
   const { user, username, onLogout, notifications, markNotificationsAsRead, markNotificationAsRead, onUpdatePassword } = props;
   
-  const userTabs = roleConfig[user.role];
+  const userTabs = roleConfig[user.role] || (user.role === 'administrateur_reseau' ? roleConfig['administrateur_reseau'] : undefined);
   const { requests: cameraAccessRequests, isLoading: isLoadingCameraRequests, refreshRequests: refreshCameraRequests } = useCameraAccessRequests();
+  
+  // Debug: vérifier les tabs
+  console.log('DashboardPage - user.role:', user.role);
+  console.log('DashboardPage - userTabs:', userTabs);
+  console.log('DashboardPage - userTabs length:', userTabs?.length);
+  console.log('DashboardPage - roleConfig keys:', Object.keys(roleConfig));
   
   // Déterminer le portail par défaut selon le rôle
   const getDefaultPortal = () => {
@@ -330,6 +338,17 @@ const DashboardPage = (props: DashboardPageProps) => {
         roleType: typeof user.role,
         fullUser: user
       });
+      
+      // Tentative de détection du rôle basée sur l'email ou username
+      if (user.email && user.email.includes('reseau')) {
+        console.warn('Détection automatique: utilisateur réseau détecté par email');
+        return 'portalAdministrateurReseau';
+      }
+      if (user.username && user.username.includes('reseau')) {
+        console.warn('Détection automatique: utilisateur réseau détecté par username');
+        return 'portalAdministrateurReseau';
+      }
+      
       // Essayer de récupérer depuis userTabs si disponible
       if (userTabs && userTabs.length > 0) {
         return userTabs[0].id;
@@ -369,12 +388,14 @@ const DashboardPage = (props: DashboardPageProps) => {
         return 'portalBuanderie';
       case 'technicien_polyvalent':
         return 'portalTechnicienPolyvalent';
+      case 'administrateur_reseau':
+        return 'portalAdministrateurReseau';
       default:
         if (userTabs && userTabs.length > 0) {
           return userTabs[0].id;
         }
         // Si le rôle n'est pas reconnu, essayer de trouver le portail dans les tabs
-        console.warn(`Rôle non reconnu: ${user.role}, fallback vers portalBiomedical`);
+        console.warn(`Rôle non reconnu: ${user.role}, userTabs:`, userTabs, 'fallback vers portalBiomedical');
         return 'portalBiomedical';
     }
   };
@@ -396,6 +417,9 @@ const DashboardPage = (props: DashboardPageProps) => {
 
   const isMobile = useIsMobile();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  
+  // Debug: vérifier isMobile
+  console.log('DashboardPage - isMobile:', isMobile, 'type:', typeof isMobile);
 
   // Fonction pour créer et assigner un ticket directement
   const createAndAssignTicket = async (ticket: {
@@ -463,8 +487,12 @@ const DashboardPage = (props: DashboardPageProps) => {
     };
   }, [user, props.incidents, props.visitors, props.plannedTasks, props.maintenanceTasks, props.bookings, props.biomedicalEquipment, props.users]);
 
-  const NavLinks = () => (
-    userTabs && userTabs.length > 0 ? userTabs.map(tab => (
+  const NavLinks = () => {
+    if (!userTabs || userTabs.length === 0) {
+      console.warn('NavLinks - Aucun onglet disponible. Rôle:', user.role, 'userTabs:', userTabs);
+      return null;
+    }
+    return userTabs.map(tab => (
       <button
         key={tab.id}
         onClick={() => {
@@ -487,8 +515,8 @@ const DashboardPage = (props: DashboardPageProps) => {
           <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/50 rounded-full"></span>
         )}
       </button>
-    )) : null
-  );
+    ));
+  };
 
   const renderActiveTab = () => {
     switch (resolvedActiveTab) {
@@ -623,6 +651,15 @@ const DashboardPage = (props: DashboardPageProps) => {
           notifications={props.notifications}
           onNavigate={setActiveTab}
         />;
+      case 'portalAdministrateurReseau':
+        return <AdministrateurReseauPortal
+          user={user}
+          maintenanceTasks={filteredData.maintenanceTasks}
+          incidents={filteredData.incidents}
+          notifications={props.notifications}
+          plannedTasks={filteredData.plannedTasks}
+          onNavigate={setActiveTab}
+        />;
       
       // Modules existants
       case 'dashboardSuperadmin':
@@ -742,11 +779,13 @@ const DashboardPage = (props: DashboardPageProps) => {
         return (
           <div className="space-y-6">
             <CameraAccessRequestForm user={user} onRequestSubmitted={refreshCameraRequests} />
-            <CameraAccessRequestList requests={cameraAccessRequests} isLoading={isLoadingCameraRequests} currentUserId={user.id} />
+            <CameraAccessRequestList requests={cameraAccessRequests} isLoading={isLoadingCameraRequests} currentUserId={user.id} currentUserRole={user.role} />
           </div>
         );
       case 'cameraAccessRequestsList':
-        return <CameraAccessRequestList requests={cameraAccessRequests} isLoading={isLoadingCameraRequests} currentUserId={user.id} />;
+        return <CameraAccessRequestList requests={cameraAccessRequests} isLoading={isLoadingCameraRequests} currentUserId={user.id} currentUserRole={user.role} />;
+      case 'cameraAccessRequestsTraceability':
+        return <CameraAccessRequestList requests={cameraAccessRequests} isLoading={isLoadingCameraRequests} currentUserId={user.id} currentUserRole={user.role} showAll={true} />;
       case 'maintenanceHistory':
         const completedMaintenance = props.incidents.filter(i => i.service === 'entretien' && (i.statut === 'resolu' || i.statut === 'traite'));
         return <MaintenanceHistoryTable interventions={completedMaintenance} allIncidents={props.incidents} />;
@@ -811,7 +850,9 @@ const DashboardPage = (props: DashboardPageProps) => {
         />;
       // Modules QHSE
       case 'qhseAudits':
-        return <AuditsList />;
+        return <AuditsList users={props.users} />;
+      case 'qhseWorks':
+        return <WorksList users={props.users} />;
       case 'qhseTrainings':
         return <TrainingsList users={props.users} />;
       case 'qhseWaste':
@@ -822,20 +863,26 @@ const DashboardPage = (props: DashboardPageProps) => {
         return <SterilizationRegisterList />;
       case 'qhseRisks':
         return <RisksList currentUser={user} />;
-      case 'qhseAudits':
-        return <AuditsList users={props.users} />;
       case 'qhseLaundry':
         return <LaundryTrackingList currentUser={user} />;
       case 'qhseReports':
         return <QHSEReportsModule />;
       case 'qhseAES':
         return <AESList currentUserId={user.id} />;
+      case 'tableauSuiviAES':
+        return <TableauSuiviAES currentUserId={user.id} />;
       case 'dailyRoundsBiomedical':
         return <DailyRoundsList user={user} roundType="biomedical" />;
       case 'dailyRoundsPolyvalent':
         return <DailyRoundsList user={user} roundType="technicien_polyvalent" />;
+      case 'dailyRoundsReseau':
+        return <DailyRoundsList user={user} roundType="reseau" />;
       case 'dailyRoundsView':
         return <DailyRoundsView users={props.users} />;
+      case 'networkEquipment':
+        return <NetworkEquipmentList user={user} />;
+      case 'networkSubscriptions':
+        return <NetworkSubscriptionsList user={user} />;
       default:
         return <SuperadminDashboard 
           incidents={props.incidents} 
@@ -928,8 +975,8 @@ const DashboardPage = (props: DashboardPageProps) => {
         </div>
       </header>
 
-      {!isMobile && (
-        <nav className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 text-white shadow-xl border-b border-gray-700/50">
+      {userTabs && userTabs.length > 0 && (
+        <nav className={`bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 text-white shadow-xl border-b border-gray-700/50 ${isMobile ? 'hidden' : 'block'}`}>
           <div className="px-6 flex space-x-1 overflow-x-auto">
             <NavLinks />
           </div>
