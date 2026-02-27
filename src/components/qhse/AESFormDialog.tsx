@@ -509,7 +509,10 @@ export const AESFormDialog = ({ isOpen, onClose, aes, currentUserId }: AESFormDi
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Médecin référent AES</Label>
-                    <Input value={medecin_referent_aes} onChange={(e) => setMedecin_referent_aes(e.target.value)} />
+                    <Input
+                      value={medecin_referent_aes}
+                      onChange={(e) => setMedecin_referent_aes(e.target.value)}
+                    />
                   </div>
                   <div>
                     <Label>Examens prescrits</Label>
