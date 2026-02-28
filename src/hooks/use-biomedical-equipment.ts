@@ -135,9 +135,7 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
         comments: task.comments ?? null,
       });
       showSuccess(`Tâche de maintenance planifiée.`);
-      if (task.technician_id) {
-        addNotification(task.technician_id, `Nouvelle tâche de maintenance pour vous.`);
-      }
+      // Notification créée côté backend
     } catch (error: any) {
       console.error("Error scheduling maintenance task:", error.message);
       showError("Erreur lors de la planification de la tâche de maintenance.");

@@ -228,10 +228,7 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
         doctor_id: booking.doctor_id,
       });
       showSuccess(`La salle a été réservée avec succès.`);
-      const supervisor = Object.values(users).find(u => u.role === 'superviseur_qhse');
-      if (supervisor) {
-        addNotification(supervisor.id, `Nouvelle réservation de salle par ${currentUser.details.first_name} ${currentUser.details.last_name}.`, 'planningSalles');
-      }
+      // Notification créée côté backend
     } catch (error: any) {
       console.error("Error adding booking:", error.message);
       showError("Erreur lors de la réservation de la salle.");

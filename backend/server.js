@@ -60,6 +60,34 @@ const dbConfig = {
 // Pool de connexions MySQL
 const pool = mysql.createPool(dbConfig);
 
+// Helper pour créer des notifications (ne bloque pas la réponse en cas d'erreur)
+const createNotification = async (recipientId, message, link = null) => {
+  if (!recipientId) return;
+  try {
+    const id = uuidv4();
+    await pool.execute(
+      `INSERT INTO notifications (id, recipient_id, message, link, \`read\`)
+       VALUES (?, ?, ?, ?, FALSE)`,
+      [id, recipientId, message, link]
+    );
+  } catch (err) {
+    console.error('Erreur création notification:', err.message);
+  }
+};
+
+// Récupérer les IDs des superviseurs QHSE
+const getSupervisorIds = async () => {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT id FROM profiles WHERE role IN ('superviseur_qhse', 'superadmin')"
+    );
+    return rows.map(r => r.id);
+  } catch (err) {
+    console.error('Erreur récupération superviseurs:', err.message);
+    return [];
+  }
+};
+
 const dayNameToIndex = {
   dimanche: 0,
   lundi: 1,
@@ -646,6 +674,14 @@ app.post('/api/incidents', authenticateToken, validateIncident, async (req, res)
       console.error('ERREUR: Priorité différente! Insérée:', finalPriorite, 'Récupérée:', savedPriorite);
     }
 
+    // Notification réelle : alerter les superviseurs QHSE
+    const [reporter] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const reporterName = reporter[0] ? `${reporter[0].first_name || ''} ${reporter[0].last_name || ''}`.trim() || 'Un utilisateur' : 'Un utilisateur';
+    const supervisorIds = await getSupervisorIds();
+    for (const sid of supervisorIds) {
+      await createNotification(sid, `Nouvel incident (${type}) signalé par ${reporterName}.`, 'qhseTickets');
+    }
+
     res.json({ id, message: 'Incident créé' });
   } catch (error) {
     console.error('Erreur lors de la création de l\'incident:', error);
@@ -742,6 +778,43 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
       `UPDATE incidents SET ${updates.join(', ')} WHERE id = ?`,
       values
     );
+
+    // Notifications réelles selon les modifications
+    const incidentIdShort = req.params.id.substring(0, 8);
+    const link = 'qhseTickets';
+
+    if (statut !== undefined) {
+      if (incident.assigned_to) {
+        await createNotification(incident.assigned_to, `Statut du ticket mis à jour: ${statut}`, link);
+      }
+      const supervisorIds = await getSupervisorIds();
+      for (const sid of supervisorIds) {
+        await createNotification(sid, `Statut du ticket ${incidentIdShort} mis à jour: ${statut}`, link);
+      }
+    }
+    if (assigned_to !== undefined) {
+      if (assigned_to) {
+        await createNotification(assigned_to, `Nouveau ticket vous a été assigné: ${incidentIdShort}.`, link);
+        const supervisorIds = await getSupervisorIds();
+        for (const sid of supervisorIds) {
+          await createNotification(sid, `Ticket ${incidentIdShort} assigné.`, link);
+        }
+      } else if (incident.assigned_to) {
+        await createNotification(incident.assigned_to, `Un ticket vous a été retiré: ${incidentIdShort}.`, link);
+        const supervisorIds = await getSupervisorIds();
+        for (const sid of supervisorIds) {
+          await createNotification(sid, `Un ticket ${incidentIdShort} a été désassigné.`, link);
+        }
+      }
+    }
+    if (report !== undefined) {
+      const [reporter] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+      const reporterName = reporter[0] ? `${reporter[0].first_name || ''} ${reporter[0].last_name || ''}`.trim() || 'Un utilisateur' : 'Un utilisateur';
+      const supervisorIds = await getSupervisorIds();
+      for (const sid of supervisorIds) {
+        await createNotification(sid, `Rapport soumis pour ticket ${incidentIdShort} par ${reporterName}.`, link);
+      }
+    }
 
     res.json({ message: 'Incident mis à jour' });
   } catch (error) {
@@ -1041,7 +1114,7 @@ app.post('/api/maintenance-tasks', authenticateToken, async (req, res) => {
         status
       )
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
-      [
+       [
         id,
         equipment_id,
         type,
@@ -1053,6 +1126,11 @@ app.post('/api/maintenance-tasks', authenticateToken, async (req, res) => {
         comments || null
       ]
     );
+
+    // Notification réelle : alerter le technicien assigné
+    if (technician_id) {
+      await createNotification(technician_id, 'Nouvelle tâche de maintenance pour vous.', 'biomedical');
+    }
 
     res.json({ id, message: 'Tâche planifiée' });
   } catch (error) {
@@ -1068,9 +1146,17 @@ app.put('/api/maintenance-tasks/:id/status', authenticateToken, async (req, res)
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Statut invalide' });
     }
+    const [tasks] = await pool.execute('SELECT type, description, technician_id FROM maintenance_tasks WHERE id = ?', [req.params.id]);
     const [result] = await pool.execute('UPDATE maintenance_tasks SET status = ? WHERE id = ?', [status, req.params.id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Tâche non trouvée' });
+    }
+    const task = tasks[0];
+    const statusLabels = { planifiée: 'Planifiée', en_cours: 'En cours', terminée: 'Terminée', annulée: 'Annulée' };
+    const label = statusLabels[status] || status;
+    const taskTitle = task?.type || task?.description || 'Tâche';
+    if (task?.technician_id) {
+      await createNotification(task.technician_id, `La tâche "${taskTitle}" est maintenant: ${label}`, 'biomedical');
     }
     res.json({ message: 'Statut de la tâche mis à jour' });
   } catch (error) {
@@ -1737,6 +1823,14 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
       [id, room_id, title, req.user.id, start_time, end_time, doctor_id || null]
     );
 
+    // Notification réelle : alerter les superviseurs QHSE
+    const [booker] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const bookerName = booker[0] ? `${booker[0].first_name || ''} ${booker[0].last_name || ''}`.trim() || 'La secrétaire' : 'La secrétaire';
+    const supervisorIds = await getSupervisorIds();
+    for (const sid of supervisorIds) {
+      await createNotification(sid, `Nouvelle réservation de salle par ${bookerName}.`, 'planningSalles');
+    }
+
     res.json({ id, message: 'Réservation créée' });
   } catch (error) {
     console.error('Erreur lors de la création de la réservation:', error);
@@ -1901,6 +1995,11 @@ app.post('/api/planned-tasks', authenticateToken, async (req, res) => {
       [id, title, description, assigned_to, assignee_name || null, req.user.id, due_date]
     );
 
+    // Notification réelle : alerter l'assigné
+    if (assigned_to) {
+      await createNotification(assigned_to, `Nouvelle tâche planifiée: ${title}`, 'dashboardTechnicien');
+    }
+
     res.json({ id, message: 'Tâche créée' });
   } catch (error) {
     console.error('Erreur lors de la création de la tâche:', error);
@@ -1911,7 +2010,14 @@ app.post('/api/planned-tasks', authenticateToken, async (req, res) => {
 app.put('/api/planned-tasks/:id', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
+    const [tasks] = await pool.execute('SELECT title, created_by FROM planned_tasks WHERE id = ?', [req.params.id]);
     await pool.execute('UPDATE planned_tasks SET status = ? WHERE id = ?', [status, req.params.id]);
+    const task = tasks[0];
+    const statusLabels = { 'à faire': 'À faire', 'en_cours': 'En cours', 'terminée': 'Terminée', 'annulée': 'Annulée' };
+    const label = statusLabels[status] || status;
+    if (task?.created_by && label) {
+      await createNotification(task.created_by, `La tâche "${task.title}" est maintenant: ${label}`, 'dashboardTechnicien');
+    }
     res.json({ message: 'Tâche mise à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de la tâche:', error);
@@ -1921,7 +2027,12 @@ app.put('/api/planned-tasks/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/planned-tasks/:id', authenticateToken, async (req, res) => {
   try {
+    const [tasks] = await pool.execute('SELECT title, assigned_to FROM planned_tasks WHERE id = ?', [req.params.id]);
+    const task = tasks[0];
     await pool.execute('DELETE FROM planned_tasks WHERE id = ?', [req.params.id]);
+    if (task?.assigned_to) {
+      await createNotification(task.assigned_to, `La tâche "${task.title}" a été supprimée.`, 'dashboardTechnicien');
+    }
     res.json({ message: 'Tâche supprimée' });
   } catch (error) {
     console.error('Erreur lors de la suppression de la tâche:', error);

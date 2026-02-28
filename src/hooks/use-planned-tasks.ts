@@ -81,7 +81,7 @@ export const usePlannedTasks = ({ currentUser, users, addNotification }: UsePlan
       const assignedUser = Object.values(users).find(user => user.id === task.assigned_to);
       const assignedName = task.assignee_name || assignedUser?.name || assignedUser?.username || 'agent';
       showSuccess(`Tâche "${task.title}" créée et assignée à ${assignedName}.`);
-      addNotification(task.assigned_to, `Nouvelle tâche planifiée: ${task.title}`);
+      // Notification créée côté backend
       await fetchPlannedTasks();
     } catch (error: any) {
       console.error("Error adding planned task:", error.message);
@@ -96,16 +96,7 @@ export const usePlannedTasks = ({ currentUser, users, addNotification }: UsePlan
         prev.map(task => task.id === taskId ? { ...task, status } : task)
       );
       showSuccess(`Le statut de la tâche a été mis à jour.`);
-      const updatedTask = plannedTasks.find(t => t.id === taskId);
-      if (updatedTask) {
-        const statusLabels: Record<PlannedTaskStatus, string> = {
-          'à faire': 'Pas commencé',
-          'en_cours': 'En cours',
-          'terminée': 'Terminé',
-          'annulée': 'Bloqué',
-        };
-        addNotification(updatedTask.created_by, `La tâche "${updatedTask.title}" est maintenant: ${statusLabels[status] || status}`);
-      }
+      // Notification créée côté backend
       // Rafraîchir pour garantir la cohérence avec le backend
       await fetchPlannedTasks();
     } catch (error: any) {
@@ -119,10 +110,7 @@ export const usePlannedTasks = ({ currentUser, users, addNotification }: UsePlan
       await apiClient.deletePlannedTask(taskId);
       showSuccess("La tâche a été supprimée.");
       await fetchPlannedTasks();
-      const taskToDelete = plannedTasks.find(t => t.id === taskId);
-      if (taskToDelete) {
-        addNotification(taskToDelete.assigned_to, `La tâche "${taskToDelete.title}" a été supprimée.`);
-      }
+      // Notification créée côté backend
     } catch (error: any) {
       console.error("Error deleting planned task:", error.message);
       showError("Erreur lors de la suppression de la tâche.");

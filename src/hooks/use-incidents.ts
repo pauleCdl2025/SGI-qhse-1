@@ -9,7 +9,7 @@ interface UseIncidentsProps {
   addNotification: (userId: string, message: string, link?: string) => void;
 }
 
-export const useIncidents = ({ currentUser, users, addNotification }: UseIncidentsProps) => {
+export const useIncidents = ({ currentUser, users, addNotification: _addNotification }: UseIncidentsProps) => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
 
   // Fetch incidents from API
@@ -122,23 +122,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
       });
 
       showSuccess("L'incident a été signalé avec succès.");
-      
-      // Déterminer le lien selon le service de l'incident
-      let notificationLink = 'qhseTickets';
-      if (newIncident.service === 'securite') {
-        notificationLink = 'dashboardSecurite';
-      } else if (newIncident.service === 'entretien') {
-        notificationLink = 'dashboardEntretien';
-      } else if (newIncident.service === 'biomedical') {
-        notificationLink = 'biomedicalDecl';
-      } else if (newIncident.service === 'technique') {
-        notificationLink = 'dashboardTechnicien';
-      }
-      
-      const supervisor = Object.values(users).find(u => u.role === 'superviseur_qhse');
-      if (supervisor) {
-        addNotification(supervisor.id, `Nouvel incident (${newIncident.type}) signalé par ${currentUser.details.first_name} ${currentUser.details.last_name}.`, notificationLink);
-      }
+      // Notification créée côté backend
     } catch (error: any) {
       console.error("Error adding incident:", error.message);
       showError("Erreur lors de l'ajout de l'incident.");
@@ -162,29 +146,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
       await apiClient.updateIncident(incidentId, { statut: newStatus });
       showSuccess(`Le statut du ticket a été mis à jour.`);
 
-      const updatedIncident = previousIncidents.find(i => i.id === incidentId);
-      
-      // Déterminer le lien selon le service de l'incident
-      let notificationLink = 'qhseTickets';
-      if (updatedIncident) {
-        if (updatedIncident.service === 'securite') {
-          notificationLink = 'dashboardSecurite';
-        } else if (updatedIncident.service === 'entretien') {
-          notificationLink = 'dashboardEntretien';
-        } else if (updatedIncident.service === 'biomedical') {
-          notificationLink = 'biomedicalDecl';
-        } else if (updatedIncident.service === 'technique') {
-          notificationLink = 'dashboardTechnicien';
-        }
-      }
-      
-      if (updatedIncident?.assigned_to) {
-        addNotification(updatedIncident.assigned_to, `Statut du ticket mis à jour: ${newStatus}`, notificationLink);
-      }
-      const supervisor = Object.values(users).find(u => u.role === 'superviseur_qhse');
-      if (supervisor) {
-        addNotification(supervisor.id, `Statut du ticket ${incidentId.substring(0, 8)} mis à jour: ${newStatus}`, notificationLink);
-      }
+      // Notifications créées côté backend
     } catch (error: any) {
       console.error("Error updating incident status:", error.message);
       showError("Erreur lors de la mise à jour du statut de l'incident.");
@@ -220,26 +182,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
 
       await apiClient.updateIncident(incidentId, { statut: 'traite', report: fullReport });
       showSuccess(`Rapport d'intervention soumis.`);
-      
-      // Déterminer le lien selon le service de l'incident
-      const incidentForReport = incidents.find(i => i.id === incidentId);
-      let notificationLink = 'qhseTickets';
-      if (incidentForReport) {
-        if (incidentForReport.service === 'securite') {
-          notificationLink = 'dashboardSecurite';
-        } else if (incidentForReport.service === 'entretien') {
-          notificationLink = 'dashboardEntretien';
-        } else if (incidentForReport.service === 'biomedical') {
-          notificationLink = 'biomedicalDecl';
-        } else if (incidentForReport.service === 'technique') {
-          notificationLink = 'dashboardTechnicien';
-        }
-      }
-      
-      const supervisor = Object.values(users).find(u => u.role === 'superviseur_qhse');
-      if (supervisor) {
-        addNotification(supervisor.id, `Rapport soumis pour ticket ${incidentId.substring(0, 8)} par ${currentUser.details.first_name} ${currentUser.details.last_name}.`, notificationLink);
-      }
+      // Notification créée côté backend
     } catch (error: any) {
       console.error("Error adding intervention report:", error.message);
       showError("Erreur lors de l'ajout du rapport d'intervention.");
@@ -284,26 +227,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
             : incident
         )
       );
-      // Déterminer le lien selon le service de l'incident
-      const incidentForLink = incidents.find(i => i.id === incidentId);
-      let notificationLink = 'qhseTickets';
-      if (incidentForLink) {
-        if (incidentForLink.service === 'securite') {
-          notificationLink = 'dashboardSecurite';
-        } else if (incidentForLink.service === 'entretien') {
-          notificationLink = 'dashboardEntretien';
-        } else if (incidentForLink.service === 'biomedical') {
-          notificationLink = 'biomedicalDecl';
-        } else if (incidentForLink.service === 'technique') {
-          notificationLink = 'dashboardTechnicien';
-        }
-      }
-      
-      addNotification(assignedTo, `Nouveau ticket vous a été assigné: ${incidentId.substring(0, 8)}.`, notificationLink);
-      const supervisor = Object.values(users).find(u => u.role === 'superviseur_qhse');
-      if (supervisor) {
-        addNotification(supervisor.id, `Ticket ${incidentId.substring(0, 8)} assigné à ${assignedUserName}.`, notificationLink);
-      }
+      // Notifications créées côté backend
     } catch (error: any) {
       console.error("Error assigning ticket:", error.message);
       showError("Erreur lors de l'assignation du ticket.");
@@ -344,29 +268,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
             : incident
         )
       );
-      const incidentToUnassign = incidents.find(i => i.id === incidentId);
-      
-      // Déterminer le lien selon le service de l'incident
-      let notificationLink = 'qhseTickets';
-      if (incidentToUnassign) {
-        if (incidentToUnassign.service === 'securite') {
-          notificationLink = 'dashboardSecurite';
-        } else if (incidentToUnassign.service === 'entretien') {
-          notificationLink = 'dashboardEntretien';
-        } else if (incidentToUnassign.service === 'biomedical') {
-          notificationLink = 'biomedicalDecl';
-        } else if (incidentToUnassign.service === 'technique') {
-          notificationLink = 'dashboardTechnicien';
-        }
-      }
-      
-      if (incidentToUnassign?.assigned_to) {
-        addNotification(incidentToUnassign.assigned_to, `Un ticket vous a été retiré: ${incidentId.substring(0, 8)}.`, notificationLink);
-      }
-      const supervisor = Object.values(users).find(u => u.role === 'superviseur_qhse');
-      if (supervisor) {
-        addNotification(supervisor.id, `Un ticket ${incidentId.substring(0, 8)} a été désassigné.`, notificationLink);
-      }
+      // Notifications créées côté backend
     } catch (error: any) {
       console.error("Error unassigning ticket:", error.message);
       showError("Erreur lors de la désassignation du ticket.");
@@ -407,9 +309,7 @@ export const useIncidents = ({ currentUser, users, addNotification }: UseInciden
 
       const assignedUserName = users[Object.keys(users).find(key => users[key].id === intervention.assigned_to)!]?.name || 'un agent';
       showSuccess(`Intervention planifiée et assignée à ${assignedUserName}.`);
-      if (intervention.assigned_to) {
-        addNotification(intervention.assigned_to, `Nouvelle intervention planifiée pour vous: ${intervention.type}.`);
-      }
+      // Notification créée côté backend (via updateIncident avec assigned_to)
     } catch (error: any) {
       console.error("Error planning intervention:", error.message);
       showError("Erreur lors de la planification de l'intervention.");
