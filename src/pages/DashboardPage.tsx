@@ -89,6 +89,7 @@ interface DashboardPageProps {
   notifications: Notification[];
   markNotificationsAsRead: (userId: string) => void;
   markNotificationAsRead?: (notificationId: string) => void;
+  deleteAllNotifications?: () => Promise<void>;
   users: Users;
   addUser: (username: string, user: { first_name: string; last_name: string; email: string; password?: string; role: UserRole; civility: Civility; position: string; pin?: string; }) => void; // Updated type
   deleteUser: (username: string) => void;
@@ -317,7 +318,7 @@ const BiomedicalDashboard = ({ biomedicalEquipment, addBiomedicalEquipment, upda
 );
 
 const DashboardPage = (props: DashboardPageProps) => {
-  const { user, username, onLogout, notifications, markNotificationsAsRead, markNotificationAsRead, onUpdatePassword } = props;
+  const { user, username, onLogout, notifications, markNotificationsAsRead, markNotificationAsRead, deleteAllNotifications, onUpdatePassword } = props;
   
   const userTabs = roleConfig[user.role] || (user.role === 'administrateur_reseau' ? roleConfig['administrateur_reseau'] : undefined);
   const { requests: cameraAccessRequests, isLoading: isLoadingCameraRequests, refreshRequests: refreshCameraRequests } = useCameraAccessRequests();
@@ -956,6 +957,7 @@ const DashboardPage = (props: DashboardPageProps) => {
               notifications={notifications} 
               onMarkAsRead={markNotificationsAsRead}
               onMarkNotificationAsRead={markNotificationAsRead}
+              onDeleteAll={deleteAllNotifications}
               onNotificationClick={(link) => {
                 console.log('Notification clicked, setting active tab to:', link);
                 setActiveTab(link);

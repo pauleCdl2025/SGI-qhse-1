@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Notification } from '@/types';
 import { apiClient } from '@/integrations/api/client';
-import { showError } from '@/utils/toast';
+import { showError, showSuccess } from '@/utils/toast';
 
 // Fonction pour jouer un son de notification
 const playNotificationSound = () => {
@@ -151,11 +151,29 @@ export const useNotifications = () => {
     }
   };
 
+  const deleteAllNotifications = async () => {
+    try {
+      await apiClient.deleteAllNotifications();
+      setNotifications([]);
+      showSuccess("Notifications supprimées.");
+    } catch (error: any) {
+      console.error("Error deleting notifications:", error);
+      const status = error?.response?.status;
+      const msg = error?.response?.data?.error || error?.message;
+      if (status === 404) {
+        showError("Route non trouvée. Redémarrez le serveur backend.");
+      } else {
+        showError(msg || "Erreur lors de la suppression des notifications.");
+      }
+    }
+  };
+
   return {
     notifications,
     setNotifications,
     addNotification,
     markNotificationsAsRead,
     markNotificationAsRead,
+    deleteAllNotifications,
   };
 };

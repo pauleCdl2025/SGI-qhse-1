@@ -12,10 +12,11 @@ interface NotificationBellProps {
   notifications: Notification[];
   onMarkAsRead: (userId: string) => void;
   onMarkNotificationAsRead?: (notificationId: string) => void;
+  onDeleteAll?: () => Promise<void>;
   onNotificationClick: (link: string) => void;
 }
 
-export const NotificationBell = ({ userId, notifications, onMarkAsRead, onMarkNotificationAsRead, onNotificationClick }: NotificationBellProps) => {
+export const NotificationBell = ({ userId, notifications, onMarkAsRead, onMarkNotificationAsRead, onDeleteAll, onNotificationClick }: NotificationBellProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const userNotifications = notifications.filter(n => n.recipient_id === userId); // Filter by recipient_id
   const unreadCount = userNotifications.filter(n => !n.read).length;
@@ -98,11 +99,18 @@ export const NotificationBell = ({ userId, notifications, onMarkAsRead, onMarkNo
             </div>
           )}
         </div>
-        {userNotifications.length > 0 && unreadCount > 0 && (
-          <div className="p-2 border-t">
-            <Button variant="link" size="sm" className="w-full" onClick={() => onMarkAsRead(userId)}>
-              Marquer tout comme lu
-            </Button>
+        {userNotifications.length > 0 && (
+          <div className="p-2 border-t flex flex-col gap-1">
+            {unreadCount > 0 && (
+              <Button variant="link" size="sm" className="w-full" onClick={() => onMarkAsRead(userId)}>
+                Marquer tout comme lu
+              </Button>
+            )}
+            {onDeleteAll && (
+              <Button variant="link" size="sm" className="w-full text-red-600 hover:text-red-700" onClick={() => onDeleteAll()}>
+                Supprimer toutes les notifications
+              </Button>
+            )}
           </div>
         )}
       </PopoverContent>

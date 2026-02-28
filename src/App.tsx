@@ -28,7 +28,7 @@ const queryClient = new QueryClient();
 const App = () => {
   // Global states managed by App.tsx and passed to hooks
   const { currentUser, users, setUsers, handleLogin, handleLogout, setCurrentUser, updatePassword, fetchAllProfiles } = useAuth({ initialUsers: {} }); // Initial users will be fetched from DB
-  const { notifications, addNotification, markNotificationsAsRead, markNotificationAsRead, setNotifications } = useNotifications();
+  const { notifications, addNotification, markNotificationsAsRead, markNotificationAsRead, deleteAllNotifications, setNotifications } = useNotifications();
 
   // Other hooks
   const { incidents, setIncidents, addIncident, updateIncidentStatus, deleteIncident, addInterventionReport, assignTicket, unassignTicket, planIntervention, updatePrestataire } = useIncidents({ currentUser, users, addNotification });
@@ -122,6 +122,7 @@ const App = () => {
                       notifications={notifications}
                       markNotificationsAsRead={markNotificationsAsRead}
                       markNotificationAsRead={markNotificationAsRead}
+                      deleteAllNotifications={deleteAllNotifications}
                       users={users}
                       addUser={addUser}
                       deleteUser={deleteUser}

@@ -805,6 +805,12 @@ class ApiClient {
     });
   }
 
+  async deleteAllNotifications() {
+    return this.request<{ message: string; deleted: number }>('/notifications', {
+      method: 'DELETE',
+    });
+  }
+
   // Ensure superadmin
   async ensureSuperadmin() {
     return this.request<{ success: boolean; message: string }>('/ensure-superadmin', {

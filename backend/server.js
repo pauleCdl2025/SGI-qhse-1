@@ -88,6 +88,23 @@ const getSupervisorIds = async () => {
   }
 };
 
+// Récupérer les IDs des utilisateurs par rôle(s)
+const getUserIdsByRoles = async (roles) => {
+  if (!Array.isArray(roles)) roles = [roles];
+  if (roles.length === 0) return [];
+  try {
+    const placeholders = roles.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id FROM profiles WHERE role IN (${placeholders})`,
+      roles
+    );
+    return rows.map(r => r.id);
+  } catch (err) {
+    console.error('Erreur récupération utilisateurs par rôle:', err.message);
+    return [];
+  }
+};
+
 const dayNameToIndex = {
   dimanche: 0,
   lundi: 1,
@@ -784,12 +801,14 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
     const link = 'qhseTickets';
 
     if (statut !== undefined) {
+      const statutLabels = { nouveau: 'Nouveau', attente: 'En attente', cours: 'En cours', en_cours: 'En cours', traite: 'Traité', resolu: 'Résolu' };
+      const statutLabel = statutLabels[statut] || statut;
       if (incident.assigned_to) {
-        await createNotification(incident.assigned_to, `Statut du ticket mis à jour: ${statut}`, link);
+        await createNotification(incident.assigned_to, `Statut du ticket mis à jour: ${statutLabel}`, link);
       }
       const supervisorIds = await getSupervisorIds();
       for (const sid of supervisorIds) {
-        await createNotification(sid, `Statut du ticket ${incidentIdShort} mis à jour: ${statut}`, link);
+        await createNotification(sid, `Statut du ticket ${incidentIdShort} mis à jour: ${statutLabel}`, link);
       }
     }
     if (assigned_to !== undefined) {
@@ -991,6 +1010,13 @@ app.post('/api/visitors', authenticateToken, validateVisitor, async (req, res) =
       [id, full_name, id_document, reason, destination, person_to_see, req.user.id]
     );
 
+    const [agent] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const agentName = agent[0] ? `${agent[0].first_name || ''} ${agent[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    const ids = await getUserIdsByRoles(['superviseur_agent_securite', 'superviseur_qhse', 'superadmin']);
+    for (const uid of ids) {
+      await createNotification(uid, `Nouveau visiteur enregistré: ${full_name} par ${agentName}.`, 'dashboardSecurite');
+    }
+
     res.json({ id, message: 'Visiteur enregistré' });
   } catch (error) {
     console.error('Erreur lors de l\'enregistrement du visiteur:', error);
@@ -1076,7 +1102,14 @@ app.post('/api/biomedical-equipment', authenticateToken, async (req, res) => {
 app.put('/api/biomedical-equipment/:id/status', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
+    const [equipment] = await pool.execute('SELECT name FROM biomedical_equipment WHERE id = ?', [req.params.id]);
     await pool.execute('UPDATE biomedical_equipment SET status = ? WHERE id = ?', [status, req.params.id]);
+    if (status === 'hors_service' && equipment[0]) {
+      const ids = await getSupervisorIds();
+      for (const uid of ids) {
+        await createNotification(uid, `Équipement biomédical HS: ${equipment[0].name}.`, 'biomedical');
+      }
+    }
     res.json({ message: 'Statut mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du statut:', error);
@@ -1311,6 +1344,11 @@ app.post('/api/aes', authenticateToken, async (req, res) => {
     );
 
     console.log('POST /api/aes - AES créé avec succès, ID:', id);
+    const ids = await getSupervisorIds();
+    const creatorName = agent_prenom && agent_nom ? `${agent_prenom} ${agent_nom}` : 'Un agent';
+    for (const uid of ids) {
+      await createNotification(uid, `Nouvel AES déclaré: ${creatorName} (${date_aes}).`, 'qhseAES');
+    }
     res.json({ id, message: 'AES créé avec succès' });
   } catch (error) {
     console.error('Erreur lors de la création de l\'AES:', error);
@@ -1673,6 +1711,11 @@ app.post('/api/camera-access-requests', authenticateToken, async (req, res) => {
       ]
     );
 
+    const ids = await getSupervisorIds();
+    for (const uid of ids) {
+      await createNotification(uid, `Nouvelle demande d'accès caméra par ${finalRequesterName}.`, 'cameraAccessRequestsTraceability');
+    }
+
     const [newRequest] = await pool.execute(
       'SELECT * FROM camera_access_requests WHERE id = ?',
       [id]
@@ -1728,6 +1771,7 @@ app.put('/api/camera-access-requests/:id', authenticateToken, async (req, res) =
 
     values.push(req.params.id);
 
+    const [beforeUpdate] = await pool.execute('SELECT requester_id FROM camera_access_requests WHERE id = ?', [req.params.id]);
     await pool.execute(
       `UPDATE camera_access_requests SET ${updates.join(', ')} WHERE id = ?`,
       values
@@ -1740,6 +1784,12 @@ app.put('/api/camera-access-requests/:id', authenticateToken, async (req, res) =
 
     if (updatedRequest.length === 0) {
       return res.status(404).json({ error: 'Demande non trouvée' });
+    }
+
+    if (status && beforeUpdate[0]?.requester_id) {
+      const statusLabels = { approuve: 'Approuvée', refuse: 'Refusée', annule: 'Annulée' };
+      const label = statusLabels[status] || status;
+      await createNotification(beforeUpdate[0].requester_id, `Votre demande d'accès caméra: ${label}.`, 'cameraAccessRequestsTraceability');
     }
 
     res.json({
@@ -2101,6 +2151,13 @@ app.post('/api/medical-waste', authenticateToken, async (req, res) => {
       ]
     );
 
+    const ids = await getSupervisorIds();
+    const [creator] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const creatorName = creator[0] ? `${creator[0].first_name || ''} ${creator[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    for (const uid of ids) {
+      await createNotification(uid, `Nouveau déchet médical enregistré par ${creatorName} (${waste_type}).`, 'qhseWaste');
+    }
+
     res.json({ id, message: 'Déchet médical enregistré' });
   } catch (error) {
     console.error('Erreur lors de la création du déchet médical:', error);
@@ -2253,6 +2310,13 @@ app.post('/api/trainings', authenticateToken, async (req, res) => {
         req.user.id
       ]
     );
+
+    const ids = await getSupervisorIds();
+    const [creator] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const creatorName = creator[0] ? `${creator[0].first_name || ''} ${creator[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    for (const uid of ids) {
+      await createNotification(uid, `Nouvelle formation planifiée: ${title} par ${creatorName}.`, 'qhseTrainings');
+    }
 
     res.json({ id, message: 'Formation créée' });
   } catch (error) {
@@ -2691,6 +2755,16 @@ app.post('/api/audits', authenticateToken, async (req, res) => {
       ]
     );
 
+    const ids = await getSupervisorIds();
+    const [creator] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const creatorName = creator[0] ? `${creator[0].first_name || ''} ${creator[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    for (const uid of ids) {
+      await createNotification(uid, `Nouvel audit planifié: ${title} par ${creatorName}.`, 'qhseAudits');
+    }
+    if (auditor_id && auditor_id !== req.user.id) {
+      await createNotification(auditor_id, `Nouvel audit assigné: ${title}.`, 'qhseAudits');
+    }
+
     res.json({ id, message: 'Audit créé' });
   } catch (error) {
     console.error('Erreur lors de la création de l\'audit:', error);
@@ -3109,6 +3183,16 @@ app.post('/api/works', authenticateToken, async (req, res) => {
         notes || null, req.user.id
       ]
     );
+
+    const ids = await getSupervisorIds();
+    const [creator] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const creatorName = creator[0] ? `${creator[0].first_name || ''} ${creator[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    for (const uid of ids) {
+      await createNotification(uid, `Nouveau travail planifié: ${title} par ${creatorName}.`, 'qhseWorks');
+    }
+    if (assigned_to) {
+      await createNotification(assigned_to, `Nouveau travail assigné: ${title}.`, 'qhseWorks');
+    }
     
     // Récupérer le travail créé
     const [newWork] = await pool.execute(
@@ -3554,6 +3638,12 @@ app.post('/api/daily-rounds', authenticateToken, async (req, res) => {
       ]
     );
 
+    const ids = await getSupervisorIds();
+    const techName = technician_name || 'Un technicien';
+    for (const uid of ids) {
+      await createNotification(uid, `Nouvelle ronde quotidienne: ${round_type} par ${techName} (${round_date}).`, 'dailyRoundsView');
+    }
+
     const [newRound] = await pool.execute(
       'SELECT dr.*, p.first_name, p.last_name FROM daily_rounds dr LEFT JOIN profiles p ON dr.technician_id = p.id WHERE dr.id = ?',
       [id]
@@ -3912,9 +4002,19 @@ app.post('/api/risks', authenticateToken, async (req, res) => {
       [
         id, title, description, risk_category, poste || null, risk_source || null, probability, severity,
         risk_level, current_controls || null, treatment_plan || null, action_plan || null,
-        responsible_person || null, due_date || null, status || 'identifié', req.user.id
+        responsible_person || null, due_date || null, status || 'identifié',         req.user.id
       ]
     );
+
+    const ids = await getSupervisorIds();
+    const [creator] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const creatorName = creator[0] ? `${creator[0].first_name || ''} ${creator[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    for (const uid of ids) {
+      await createNotification(uid, `Nouveau risque identifié: ${title} par ${creatorName}.`, 'qhseRisks');
+    }
+    if (responsible_person) {
+      await createNotification(responsible_person, `Nouveau risque à traiter: ${title}.`, 'qhseRisks');
+    }
 
     res.json({ id, message: 'Risque créé' });
   } catch (error) {
@@ -4432,6 +4532,14 @@ app.post('/api/laundry-tracking', authenticateToken, async (req, res) => {
       values
     );
 
+    const ids = await getSupervisorIds();
+    const [creator] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
+    const creatorName = creator[0] ? `${creator[0].first_name || ''} ${creator[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    const buanderieIds = await getUserIdsByRoles(['buanderie', 'superviseur_agent_entretien']);
+    for (const uid of [...ids, ...buanderieIds]) {
+      await createNotification(uid, `Nouveau suivi de linge par ${creatorName}.`, 'qhseLaundry');
+    }
+
     res.json({ id, message: 'Suivi de linge créé' });
   } catch (error) {
     console.error('Erreur lors de la création du suivi de linge:', error);
@@ -4539,6 +4647,22 @@ app.put('/api/notifications/mark-read', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Erreur lors de la mise à jour des notifications:', error);
     res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Supprimer toutes les notifications de l'utilisateur connecté
+app.delete('/api/notifications', authenticateToken, async (req, res) => {
+  try {
+    const recipientId = req.user?.id;
+    if (!recipientId) {
+      return res.status(401).json({ error: 'Utilisateur non authentifié' });
+    }
+    const [result] = await pool.execute('DELETE FROM notifications WHERE recipient_id = ?', [recipientId]);
+    const deleted = result?.affectedRows ?? 0;
+    res.json({ message: 'Notifications supprimées', deleted });
+  } catch (error) {
+    console.error('Erreur lors de la suppression des notifications:', error);
+    res.status(500).json({ error: error?.message || 'Erreur serveur' });
   }
 });
 
