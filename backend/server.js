@@ -4605,6 +4605,162 @@ app.delete('/api/laundry-tracking/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Routes pour les anomalies QHSE
+app.get('/api/qhse-anomalies', authenticateToken, async (req, res) => {
+  try {
+    const allowedRoles = ['assistante_qhse', 'superviseur_qhse', 'superadmin'];
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
+    const [rows] = await pool.execute(
+      'SELECT * FROM qhse_anomalies ORDER BY date_anomalie DESC, created_at DESC'
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Erreur lors de la récupération des anomalies QHSE:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.post('/api/qhse-anomalies', authenticateToken, async (req, res) => {
+  try {
+    const allowedRoles = ['assistante_qhse', 'superviseur_qhse', 'superadmin'];
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
+    const {
+      date_anomalie,
+      lieu,
+      source,
+      description,
+      thematique,
+      sous_thematique,
+      responsable_action,
+      message_prise_en_compte,
+      actions_a_mettre_en_oeuvre,
+      devis_a_faire,
+      montant_devis,
+      commentaires,
+      impact_patient,
+      impact_structure,
+      niveau_priorite,
+      date_limite,
+      etat_avancement,
+      date_resolution,
+      date_verification,
+      commentaire_verification
+    } = req.body;
+
+    if (!date_anomalie || !lieu || !description) {
+      return res.status(400).json({ error: 'Date, lieu et description sont obligatoires' });
+    }
+
+    const id = uuidv4();
+    await pool.execute(
+      `INSERT INTO qhse_anomalies (
+        id, date_anomalie, lieu, source, description, thematique, sous_thematique,
+        responsable_action, message_prise_en_compte, actions_a_mettre_en_oeuvre,
+        devis_a_faire, montant_devis, commentaires, impact_patient, impact_structure,
+        niveau_priorite, date_limite, etat_avancement, date_resolution, date_verification,
+        commentaire_verification, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        date_anomalie,
+        lieu,
+        source || null,
+        description,
+        thematique || null,
+        sous_thematique || null,
+        responsable_action || null,
+        message_prise_en_compte || null,
+        actions_a_mettre_en_oeuvre || null,
+        devis_a_faire === true,
+        montant_devis || null,
+        commentaires || null,
+        impact_patient || null,
+        impact_structure || null,
+        niveau_priorite || 'moyenne',
+        date_limite || null,
+        etat_avancement || null,
+        date_resolution || null,
+        date_verification || null,
+        commentaire_verification || null,
+        req.user.id
+      ]
+    );
+
+    res.json({ id, message: 'Anomalie QHSE créée' });
+  } catch (error) {
+    console.error('Erreur lors de la création de l\'anomalie QHSE:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.put('/api/qhse-anomalies/:id', authenticateToken, async (req, res) => {
+  try {
+    const allowedRoles = ['assistante_qhse', 'superviseur_qhse', 'superadmin'];
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
+    const { id } = req.params;
+    const updateData = req.body || {};
+
+    const allowedFields = [
+      'date_anomalie', 'lieu', 'source', 'description', 'thematique', 'sous_thematique',
+      'responsable_action', 'message_prise_en_compte', 'actions_a_mettre_en_oeuvre',
+      'devis_a_faire', 'montant_devis', 'commentaires', 'impact_patient', 'impact_structure',
+      'niveau_priorite', 'date_limite', 'etat_avancement', 'date_resolution', 'date_verification',
+      'commentaire_verification'
+    ];
+
+    const updates = [];
+    const values = [];
+
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        updates.push(`${field} = ?`);
+        values.push(updateData[field]);
+      }
+    });
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+    }
+
+    values.push(id);
+
+    await pool.execute(
+      `UPDATE qhse_anomalies SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      values
+    );
+
+    res.json({ message: 'Anomalie QHSE mise à jour' });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour de l\'anomalie QHSE:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+app.delete('/api/qhse-anomalies/:id', authenticateToken, async (req, res) => {
+  try {
+    const allowedRoles = ['assistante_qhse', 'superviseur_qhse', 'superadmin'];
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
+    const { id } = req.params;
+    await pool.execute('DELETE FROM qhse_anomalies WHERE id = ?', [id]);
+    res.json({ message: 'Anomalie QHSE supprimée' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression de l\'anomalie QHSE:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 // Routes pour les notifications
 app.get('/api/notifications', authenticateToken, async (req, res) => {
   try {

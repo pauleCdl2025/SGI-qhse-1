@@ -10,4 +10,5 @@ export { RisksList } from './risks/RisksList';
 export { LaundryTrackingList } from './laundry/LaundryTrackingList';
 export { QHSEReportsModule } from './QHSEReportsModule';
 export { TableauSuiviAES } from './TableauSuiviAES';
+export { QHSEAnomaliesModule } from './QHSEAnomaliesModule';
 

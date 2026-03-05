@@ -1,25 +1,27 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Icon } from "@/components/Icon";
 import { DashboardCard } from "@/components/shared/DashboardCard";
-import { User, Incident, PlannedTask, Notification, Users } from "@/types";
+import { User, Incident, PlannedTask, Users } from "@/types";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { PortalExcelActions } from "@/components/shared/PortalExcelActions";
+import { generatePortalReportPDF } from "@/utils/portalReportsGenerator";
+import { showSuccess, showError } from "@/utils/toast";
+import { Button } from "@/components/ui/button";
 
 interface PortalProps {
   user: User;
   incidents: Incident[];
   plannedTasks: PlannedTask[];
-  notifications: Notification[];
   users?: Users;
   onNavigate: (tabId: string) => void;
 }
 
 // Portail Superviseur Agent d'Entretien
-export const SuperviseurEntretienPortal = ({ user, incidents, plannedTasks, notifications, users, onNavigate }: PortalProps) => {
+export const SuperviseurEntretienPortal = ({ user, incidents, plannedTasks, users, onNavigate }: PortalProps) => {
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const today = new Date();
-  const todayStr = today.toDateString();
-  
   const maintenanceIncidents = incidents.filter(i => i.service === 'entretien');
   const myAgents = users ? Object.values(users).filter(u => u.role === 'agent_entretien') : [];
   const stats = {
@@ -29,6 +31,23 @@ export const SuperviseurEntretienPortal = ({ user, incidents, plannedTasks, noti
     resolved: maintenanceIncidents.filter(i => i.statut === 'resolu').length,
     myAgents: myAgents.length,
     pendingTasks: plannedTasks.filter(t => t.status === 'à faire').length,
+  };
+
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
+    try {
+      await generatePortalReportPDF('superviseur_entretien', {
+        user,
+        incidents: maintenanceIncidents,
+        plannedTasks,
+      });
+      showSuccess('Rapport PDF généré avec succès !');
+    } catch (error: any) {
+      console.error("Erreur lors de la génération du rapport superviseur entretien:", error);
+      showError("Erreur lors de la génération du rapport PDF.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
   };
 
   return (
@@ -48,14 +67,28 @@ export const SuperviseurEntretienPortal = ({ user, incidents, plannedTasks, noti
               {format(today, "EEEE d MMMM yyyy", { locale: fr })} - {format(today, "HH:mm")}
             </p>
           </div>
-          <PortalExcelActions
-            portalType="superviseur_entretien"
-            data={{
-              incidents: maintenanceIncidents,
-              plannedTasks,
-              users,
-            }}
-          />
+          <div className="flex gap-2">
+            <PortalExcelActions
+              portalType="superviseur_entretien"
+              data={{
+                incidents: maintenanceIncidents,
+                plannedTasks,
+                users,
+              }}
+            />
+            <Button
+              onClick={handleGenerateReport}
+              disabled={isGeneratingReport}
+              size="sm"
+              className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
+            >
+              <Icon
+                name={isGeneratingReport ? "Clock" : "Download"}
+                className={`mr-2 h-4 w-4 ${isGeneratingReport ? "animate-spin" : ""}`}
+              />
+              {isGeneratingReport ? "Génération..." : "Rapport PDF"}
+            </Button>
+          </div>
         </div>
       </div>
 

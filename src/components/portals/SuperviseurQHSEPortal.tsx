@@ -46,7 +46,6 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
     activeBookings: bookings.filter(b => b.status === 'réservé' || b.status === 'en_cours').length,
     pendingTasks: plannedTasks.filter(t => t.status === 'à faire').length,
   };
-
   // Filtrer les incidents déclarés par l'utilisateur
   const myReportedIncidents = incidents.filter(i => i.reported_by === user.id && i.service !== 'biomedical');
   const myEquipmentDeclarations = incidents.filter(i => i.reported_by === user.id && i.service === 'biomedical');
@@ -293,6 +292,15 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
               <Icon name="Settings" className="text-gray-600 mb-3 text-3xl" />
               <h3 className="font-semibold mb-2">Utilisateurs</h3>
               <p className="text-sm text-gray-600">Gérer les utilisateurs</p>
+            </CardContent>
+          </Card>
+        )}
+        {user.role === 'assistante_qhse' && (
+          <Card className="card-hover cursor-pointer" onClick={() => onNavigate('qhseAnomalies')}>
+            <CardContent className="p-6">
+              <Icon name="AlertTriangle" className="text-orange-500 mb-3 text-3xl" />
+              <h3 className="font-semibold mb-2">Anomalies QHSE</h3>
+              <p className="text-sm text-gray-600">Créer et suivre les anomalies</p>
             </CardContent>
           </Card>
         )}

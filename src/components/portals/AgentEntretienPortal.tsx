@@ -1,14 +1,18 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/Icon";
 import { DashboardCard } from "@/components/shared/DashboardCard";
 import { IncidentHistoryCard } from "@/components/shared/IncidentHistoryCard";
-import { User, Incident, Visitor, PlannedTask, Booking, Notification, Users, UserRole } from "@/types";
+import { User, Incident, Visitor, PlannedTask, Booking, Notification, Users, UserRole, IncidentService } from "@/types";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import { PortalExcelActions } from "@/components/shared/PortalExcelActions";
+import { generatePortalReportPDF } from "@/utils/portalReportsGenerator";
+import { showSuccess, showError } from "@/utils/toast";
+import { Button } from "@/components/ui/button";
 
 interface PortalProps {
   user: User;
@@ -111,6 +115,7 @@ const formatTicketNumber = (incident: Incident, allIncidents: Incident[] = []): 
 
 // Portail Agent d'Entretien
 export const AgentEntretienPortal = ({ user, incidents, plannedTasks, notifications, onNavigate, onDeleteIncident, users }: PortalProps) => {
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const today = new Date();
   const todayStr = today.toDateString();
   
@@ -129,6 +134,23 @@ export const AgentEntretienPortal = ({ user, incidents, plannedTasks, notificati
   };
   const myReportedIncidents = incidents.filter(i => i.reported_by === user.id && i.service !== 'biomedical');
   const myEquipmentDeclarations = incidents.filter(i => i.reported_by === user.id && i.service === 'biomedical');
+
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
+    try {
+      await generatePortalReportPDF('agent_entretien', {
+        user,
+        incidents: maintenanceIncidents,
+        plannedTasks,
+      });
+      showSuccess('Rapport PDF généré avec succès !');
+    } catch (error: any) {
+      console.error("Erreur lors de la génération du rapport entretien:", error);
+      showError("Erreur lors de la génération du rapport PDF.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
 
   return (
     <div className="space-y-8 fade-in">
@@ -155,13 +177,27 @@ export const AgentEntretienPortal = ({ user, incidents, plannedTasks, notificati
                 <div className="text-sm text-cyan-100">Notification{unreadNotifications.length > 1 ? 's' : ''}</div>
               </div>
             )}
-            <PortalExcelActions
-              portalType="agent_entretien"
-              data={{
-                incidents: assignedIncidents,
-                plannedTasks,
-              }}
-            />
+            <div className="flex gap-2">
+              <PortalExcelActions
+                portalType="agent_entretien"
+                data={{
+                  incidents: assignedIncidents,
+                  plannedTasks,
+                }}
+              />
+              <Button
+                onClick={handleGenerateReport}
+                disabled={isGeneratingReport}
+                size="sm"
+                className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
+              >
+                <Icon
+                  name={isGeneratingReport ? "Clock" : "Download"}
+                  className={`mr-2 h-4 w-4 ${isGeneratingReport ? "animate-spin" : ""}`}
+                />
+                {isGeneratingReport ? "Génération..." : "Rapport PDF"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

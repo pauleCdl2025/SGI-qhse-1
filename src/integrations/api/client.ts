@@ -25,18 +25,18 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
-    const headers: HeadersInit = {
+    const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string> | undefined),
     };
 
     if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+      baseHeaders['Authorization'] = `Bearer ${this.token}`;
     }
 
     const response = await fetch(url, {
       ...options,
-      headers,
+      headers: baseHeaders,
     });
 
     if (!response.ok) {
@@ -558,7 +558,7 @@ class ApiClient {
 
   // Works (Gestion des travaux)
   async getWorks() {
-    return this.request<Work[]>('/works');
+    return this.request<any[]>('/works');
   }
 
   async createWork(work: any) {
@@ -807,6 +807,31 @@ class ApiClient {
 
   async deleteAllNotifications() {
     return this.request<{ message: string; deleted: number }>('/notifications', {
+      method: 'DELETE',
+    });
+  }
+
+  // Anomalies QHSE
+  async getQHSEAnomalies() {
+    return this.request<any[]>('/qhse-anomalies');
+  }
+
+  async createQHSEAnomaly(anomaly: any) {
+    return this.request('/qhse-anomalies', {
+      method: 'POST',
+      body: JSON.stringify(anomaly),
+    });
+  }
+
+  async updateQHSEAnomaly(id: string, anomaly: any) {
+    return this.request(`/qhse-anomalies/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(anomaly),
+    });
+  }
+
+  async deleteQHSEAnomaly(id: string) {
+    return this.request(`/qhse-anomalies/${id}`, {
       method: 'DELETE',
     });
   }

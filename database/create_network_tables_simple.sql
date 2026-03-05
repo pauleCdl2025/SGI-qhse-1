@@ -96,3 +96,4 @@ SELECT
     'network_inventory' as table_name,
     COUNT(*) as row_count
 FROM network_inventory;
+

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/Icon";
 import { DashboardCard } from "@/components/shared/DashboardCard";
@@ -6,6 +7,9 @@ import { User, Incident, Visitor, PlannedTask, Booking, Notification } from "@/t
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { PortalExcelActions } from "@/components/shared/PortalExcelActions";
+import { generatePortalReportPDF } from "@/utils/portalReportsGenerator";
+import { showSuccess, showError } from "@/utils/toast";
+import { Button } from "@/components/ui/button";
 
 interface PortalProps {
   user: User;
@@ -20,6 +24,7 @@ interface PortalProps {
 
 // Composant générique pour les portails
 export const UserPortal = ({ user, incidents, visitors, plannedTasks, bookings, notifications, onNavigate, onDeleteIncident }: PortalProps) => {
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const today = new Date();
   const todayStr = today.toDateString();
   
@@ -31,6 +36,25 @@ export const UserPortal = ({ user, incidents, visitors, plannedTasks, bookings, 
   const myIncidentReports = incidents.filter(i => i.reported_by === user.id && i.service !== 'biomedical');
   const myEquipmentDeclarations = incidents.filter(i => i.reported_by === user.id && i.service === 'biomedical');
 
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
+    try {
+      await generatePortalReportPDF('user', {
+        user,
+        incidents,
+        visitors,
+        plannedTasks,
+        bookings,
+      });
+      showSuccess('Rapport PDF généré avec succès !');
+    } catch (error: any) {
+      console.error("Erreur lors de la génération du rapport utilisateur:", error);
+      showError("Erreur lors de la génération du rapport PDF.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   return (
     <div className="space-y-8 fade-in">
       {/* En-tête du portail */}
@@ -41,7 +65,7 @@ export const UserPortal = ({ user, incidents, visitors, plannedTasks, bookings, 
               Bienvenue, {user.civility} {user.first_name} {user.last_name}
             </h1>
             <p className="text-cyan-100 text-lg">
-              {format(today, "EEEE d MMMM yyyy", { locale: fr })} - {user.service || 'Centre Diagnostic Libreville'}
+              {format(today, "EEEE d MMMM yyyy", { locale: fr })} - Centre Diagnostic Libreville
             </p>
           </div>
           <div className="flex flex-col items-end gap-3">
@@ -49,15 +73,29 @@ export const UserPortal = ({ user, incidents, visitors, plannedTasks, bookings, 
               <div className="text-4xl font-bold">{format(today, "HH:mm")}</div>
               <div className="text-cyan-100">{unreadNotifications > 0 && `${unreadNotifications} notification(s)`}</div>
             </div>
-            <PortalExcelActions
-              portalType="user"
-              data={{
-                incidents,
-                visitors,
-                plannedTasks,
-                bookings,
-              }}
-            />
+            <div className="flex gap-2">
+              <PortalExcelActions
+                portalType="user"
+                data={{
+                  incidents,
+                  visitors,
+                  plannedTasks,
+                  bookings,
+                }}
+              />
+              <Button
+                onClick={handleGenerateReport}
+                disabled={isGeneratingReport}
+                size="sm"
+                className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
+              >
+                <Icon
+                  name={isGeneratingReport ? "Clock" : "Download"}
+                  className={`mr-2 h-4 w-4 ${isGeneratingReport ? "animate-spin" : ""}`}
+                />
+                {isGeneratingReport ? "Génération..." : "Rapport PDF"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

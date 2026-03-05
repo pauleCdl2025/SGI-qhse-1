@@ -52,6 +52,7 @@ export const allPermissions = [
   { id: 'cameraAccessRequestsTraceability', name: 'Traçabilité Demandes Accès Caméras', icon: 'Video' },
   { id: 'networkEquipment', name: 'Matériel Réseau', icon: 'Server' },
   { id: 'networkSubscriptions', name: 'Abonnements Réseau', icon: 'CreditCard' },
+  { id: 'qhseAnomalies', name: 'Anomalies QHSE', icon: 'AlertTriangle' },
 ];
 
 const findPerms = (ids: string[]) => allPermissions.filter(p => ids.includes(p.id));
@@ -64,12 +65,12 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   ],
   superviseur_qhse: [
     { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'qhseAudits', 'qhseWorks', 'qhseTrainings', 'qhseWaste', 'qhseSterilizationRegister', 'qhseRisks', 'qhseReports', 'dailyRoundsView', 'qhseAES', 'tableauSuiviAES', 'cameraAccessRequestsTraceability'])
+    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'qhseAudits', 'qhseWorks', 'qhseTrainings', 'qhseWaste', 'qhseSterilizationRegister', 'qhseRisks', 'qhseReports', 'dailyRoundsView', 'qhseAES', 'tableauSuiviAES', 'cameraAccessRequestsTraceability', 'qhseAnomalies'])
   ],
   // Assistante QHSE : son portail, signalement d'incidents, gestion tickets, formations et consultation des rondes
   assistante_qhse: [
     { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['qhseTickets', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'personalInfo', 'qhseTrainings', 'dailyRoundsView'])
+    ...findPerms(['qhseTickets', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'personalInfo', 'qhseTrainings', 'dailyRoundsView', 'qhseAnomalies'])
   ],
   secretaire: [{ id: 'portalSecretaire', name: 'Mon Portail', icon: 'Home' }, ...findPerms(['planningSalles', 'visitorLog', 'doctors', 'personalInfo', 'globalRoomOverview', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])],
   medecin: [{ id: 'portalMedecin', name: 'Mon Portail', icon: 'Home' }, ...findPerms(['planningSalles', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])],

@@ -285,6 +285,38 @@ CREATE TABLE IF NOT EXISTS notifications (
     INDEX idx_created_at (created_at)
 );
 
+-- Table des anomalies QHSE
+CREATE TABLE IF NOT EXISTS qhse_anomalies (
+    id VARCHAR(36) PRIMARY KEY,
+    date_anomalie DATE NOT NULL,
+    lieu VARCHAR(255) NOT NULL,
+    source VARCHAR(255) NULL,
+    description TEXT NOT NULL,
+    thematique VARCHAR(255) NULL,
+    sous_thematique VARCHAR(255) NULL,
+    responsable_action VARCHAR(255) NULL,
+    message_prise_en_compte TEXT NULL,
+    actions_a_mettre_en_oeuvre TEXT NULL,
+    devis_a_faire BOOLEAN DEFAULT FALSE,
+    montant_devis DECIMAL(10,2) NULL,
+    commentaires TEXT NULL,
+    impact_patient VARCHAR(255) NULL,
+    impact_structure VARCHAR(255) NULL,
+    niveau_priorite ENUM('faible', 'moyenne', 'haute', 'critique') DEFAULT 'moyenne',
+    date_limite DATE NULL,
+    etat_avancement VARCHAR(255) NULL,
+    date_resolution DATE NULL,
+    date_verification DATE NULL,
+    commentaire_verification TEXT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE SET NULL,
+    INDEX idx_qhse_anomalies_date (date_anomalie),
+    INDEX idx_qhse_anomalies_priorite (niveau_priorite),
+    INDEX idx_qhse_anomalies_responsable (responsable_action)
+);
+
 -- Créer un utilisateur superadmin par défaut (password: admin123)
 -- L'ID sera généré avec UUID() lors de l'insertion
 INSERT INTO profiles (

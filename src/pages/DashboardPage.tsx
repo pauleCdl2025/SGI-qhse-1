@@ -44,7 +44,7 @@ import { TaskPlanning } from '@/components/qhse/TaskPlanning';
 import { PersonalInfo } from '@/components/shared/PersonalInfo';
 import { KpiDashboard } from '@/components/dashboards/KpiDashboard';
 import { GlobalRoomOverview } from '@/components/planning/GlobalRoomOverview'; // Import du nouveau composant
-import { AuditsList, WorksList, TrainingsList, MedicalWasteList, SterilizationCyclesList, SterilizationRegisterList, RisksList, LaundryTrackingList, QHSEReportsModule } from '@/components/qhse';
+import { AuditsList, WorksList, TrainingsList, MedicalWasteList, SterilizationCyclesList, SterilizationRegisterList, RisksList, LaundryTrackingList, QHSEReportsModule, QHSEAnomaliesModule } from '@/components/qhse';
 import { AESList } from '@/components/qhse/AESList';
 import { TableauSuiviAES } from '@/components/qhse/TableauSuiviAES';
 import { DailyRoundsList, DailyRoundsView } from '@/components/rounds';
@@ -868,6 +868,8 @@ const DashboardPage = (props: DashboardPageProps) => {
         return <LaundryTrackingList currentUser={user} />;
       case 'qhseReports':
         return <QHSEReportsModule />;
+      case 'qhseAnomalies':
+        return <QHSEAnomaliesModule user={user} />;
       case 'qhseAES':
         return <AESList currentUserId={user.id} />;
       case 'tableauSuiviAES':
