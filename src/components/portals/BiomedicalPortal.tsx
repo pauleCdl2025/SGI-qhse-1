@@ -337,6 +337,59 @@ export const BiomedicalPortal = ({ user, biomedicalEquipment, maintenanceTasks, 
         </Card>
       </div>
 
+      <Card className="shadow-lg border-0">
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-4">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Icon name="Package" className="text-emerald-500" />
+              Stock des équipements disponibles
+            </CardTitle>
+            <p className="text-sm text-gray-500">
+              Liste des équipements biomédicaux opérationnels actuellement disponibles.
+            </p>
+          </div>
+          <button
+            onClick={() => onNavigate('biomedical')}
+            className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold"
+          >
+            Voir tout le parc
+          </button>
+        </CardHeader>
+        <CardContent>
+          {stats.operational === 0 ? (
+            <div className="text-sm text-gray-500">
+              Aucun équipement disponible pour le moment.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-xs uppercase text-gray-500">
+                    <th className="py-2 pr-4">Équipement</th>
+                    <th className="py-2 pr-4">Modèle</th>
+                    <th className="py-2 pr-4">N° série</th>
+                    <th className="py-2 pr-4">Localisation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {biomedicalEquipment
+                    .filter(eq => eq.status === 'opérationnel')
+                    .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+                    .map(eq => (
+                      <tr key={eq.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-2 pr-4 font-medium text-gray-800">{eq.name}</td>
+                        <td className="py-2 pr-4 text-gray-600">{eq.model || 'N/A'}</td>
+                        <td className="py-2 pr-4 text-gray-600">{eq.serial_number || '-'}</td>
+                        <td className="py-2 pr-4 text-gray-600">{eq.location || 'Non renseigné'}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <IncidentHistoryCard
         title="Tickets qui me sont assignés"
         subtitle="Interventions QHSE à traiter"
