@@ -1,15 +1,15 @@
 import { UserRole } from '@/types';
 
 export const allPermissions = [
-  { id: 'portalSuperadmin', name: 'Mon Portail', icon: 'Home' },
-  { id: 'portalAgentSecurite', name: 'Mon Portail', icon: 'Home' },
-  { id: 'portalAgentEntretien', name: 'Mon Portail', icon: 'Home' },
-  { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-  { id: 'portalSuperviseurSecurite', name: 'Mon Portail', icon: 'Home' },
-  { id: 'portalUser', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalSuperadmin', name: 'Portail Superadmin', icon: 'Home' },
+  { id: 'portalAgentSecurite', name: 'Portail Agent Sécurité', icon: 'Home' },
+  { id: 'portalAgentEntretien', name: 'Portail Agent Entretien', icon: 'Home' },
+  { id: 'portalSuperviseurQHSE', name: 'Portail Superviseur QHSE', icon: 'Home' },
+  { id: 'portalSuperviseurSecurite', name: 'Portail Superviseur Sécurité', icon: 'Home' },
+  { id: 'portalUser', name: 'Portail Employé', icon: 'Home' },
   { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-  { id: 'portalMedecin', name: 'Mon Portail', icon: 'Home' },
-  { id: 'portalSecretaire', name: 'Mon Portail', icon: 'Home' },
+  { id: 'portalMedecin', name: 'Portail Médecin', icon: 'Home' },
+  { id: 'portalSecretaire', name: 'Portail Secrétaire', icon: 'Home' },
   { id: 'portalBuanderie', name: 'Portail Buanderie', icon: 'Shirt' },
   { id: 'portalTechnicienPolyvalent', name: 'Portail Technicien Polyvalent', icon: 'Wrench' },
   { id: 'dashboardSuperadmin', name: 'Dashboard Superadmin', icon: 'Crown' },

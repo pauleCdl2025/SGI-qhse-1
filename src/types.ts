@@ -91,6 +91,14 @@ export interface Visitor {
   entry_time: Date;
   exit_time?: Date;
   registered_by: string; // User ID of the registrar
+  // Champs complémentaires pour la gestion des accès
+  company?: string;              // Société / Organisme
+  visit_type?: string;           // Type (visiteur, prestataire, etc.)
+  id_verified?: boolean;         // Pièce d'identité vérifiée ?
+  badge_code?: string;           // Code du badge remis
+  entry_signature?: string;      // Signature entrée
+  exit_signature?: string;       // Signature sortie
+  access_observations?: string;  // Observations
 }
 
 export type BiomedicalEquipmentStatus = 'opérationnel' | 'en_maintenance' | 'hors_service';

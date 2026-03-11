@@ -21,6 +21,7 @@ const {
   requestLogger,
   loginAttempts
 } = require('./middlewares/validation');
+const { supabase } = require('./supabaseClient');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -65,11 +66,25 @@ const createNotification = async (recipientId, message, link = null) => {
   if (!recipientId) return;
   try {
     const id = uuidv4();
-    await pool.execute(
-      `INSERT INTO notifications (id, recipient_id, message, link, \`read\`)
-       VALUES (?, ?, ?, ?, FALSE)`,
-      [id, recipientId, message, link]
-    );
+    if (supabase) {
+      const { error } = await supabase.from('notifications').insert({
+        id,
+        recipient_id: recipientId,
+        message,
+        link,
+        read: false,
+        created_at: new Date().toISOString(),
+      });
+      if (error) {
+        console.error('Erreur création notification (Supabase):', error.message);
+      }
+    } else {
+      await pool.execute(
+        `INSERT INTO notifications (id, recipient_id, message, link, \`read\`)
+         VALUES (?, ?, ?, ?, FALSE)`,
+        [id, recipientId, message, link]
+      );
+    }
   } catch (err) {
     console.error('Erreur création notification:', err.message);
   }
@@ -78,10 +93,22 @@ const createNotification = async (recipientId, message, link = null) => {
 // Récupérer les IDs des superviseurs QHSE
 const getSupervisorIds = async () => {
   try {
-    const [rows] = await pool.execute(
-      "SELECT id FROM profiles WHERE role IN ('superviseur_qhse', 'superadmin')"
-    );
-    return rows.map(r => r.id);
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['superviseur_qhse', 'superadmin']);
+      if (error) {
+        console.error('Erreur récupération superviseurs (Supabase):', error.message);
+        return [];
+      }
+      return data.map(r => r.id);
+    } else {
+      const [rows] = await pool.execute(
+        "SELECT id FROM profiles WHERE role IN ('superviseur_qhse', 'superadmin')"
+      );
+      return rows.map(r => r.id);
+    }
   } catch (err) {
     console.error('Erreur récupération superviseurs:', err.message);
     return [];
@@ -93,12 +120,24 @@ const getUserIdsByRoles = async (roles) => {
   if (!Array.isArray(roles)) roles = [roles];
   if (roles.length === 0) return [];
   try {
-    const placeholders = roles.map(() => '?').join(',');
-    const [rows] = await pool.execute(
-      `SELECT id FROM profiles WHERE role IN (${placeholders})`,
-      roles
-    );
-    return rows.map(r => r.id);
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', roles);
+      if (error) {
+        console.error('Erreur récupération utilisateurs par rôle (Supabase):', error.message);
+        return [];
+      }
+      return data.map(r => r.id);
+    } else {
+      const placeholders = roles.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT id FROM profiles WHERE role IN (${placeholders})`,
+        roles
+      );
+      return rows.map(r => r.id);
+    }
   } catch (err) {
     console.error('Erreur récupération utilisateurs par rôle:', err.message);
     return [];
@@ -152,6 +191,12 @@ let lastConsultationSync = 0;
 
 const ensureConsultationSchedule = async (force = false) => {
   try {
+    // Avec Supabase (PostgreSQL), on désactive temporairement cette synchronisation basée sur MySQL
+    if (supabase) {
+      console.log('[Init] Supabase détecté, ensureConsultationSchedule (MySQL) désactivé pour le moment.');
+      return;
+    }
+
     const now = Date.now();
     if (!force && now - lastConsultationSync < CONSULTATION_SYNC_INTERVAL) {
       return;
@@ -343,11 +388,33 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', decoded.userId)
+        .limit(1);
+
+      if (error) {
+        console.error('Erreur récupération utilisateur (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (!data || data.length === 0) {
+        return res.status(401).json({ error: 'Utilisateur non trouvé' });
+      }
+
+      req.user = data[0];
+      return next();
+    }
+
+    // Fallback MySQL si Supabase n'est pas disponible
     const [users] = await pool.execute(
       'SELECT * FROM profiles WHERE id = ?',
       [decoded.userId]
     );
-    
+
     if (users.length === 0) {
       return res.status(401).json({ error: 'Utilisateur non trouvé' });
     }
@@ -362,15 +429,25 @@ const authenticateToken = async (req, res, next) => {
 // Routes d'authentification
 app.post('/api/auth/signup', validateSignup, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour l\'authentification.' });
+    }
+
     const { email, password, first_name, last_name, username, role, service, civility, pin } = req.body;
 
     // Vérifier si l'utilisateur existe déjà
-    const [existing] = await pool.execute(
-      'SELECT * FROM profiles WHERE email = ? OR username = ?',
-      [email, username]
-    );
+    const { data: existing, error: existingError } = await supabase
+      .from('profiles')
+      .select('id')
+      .or(`email.eq.${email},username.eq.${username}`)
+      .limit(1);
 
-    if (existing.length > 0) {
+    if (existingError) {
+      console.error('Erreur Supabase lors de la vérification de l\'utilisateur existant:', existingError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (existing && existing.length > 0) {
       return res.status(400).json({ error: 'Email ou nom d\'utilisateur déjà utilisé' });
     }
 
@@ -378,12 +455,26 @@ app.post('/api/auth/signup', validateSignup, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const id = uuidv4();
 
-    // Créer l'utilisateur
-    await pool.execute(
-      `INSERT INTO profiles (id, username, email, password_hash, first_name, last_name, civility, role, service, pin)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, username, email, passwordHash, first_name, last_name, civility || 'M.', role, service || '', pin || null]
-    );
+    // Créer l'utilisateur dans Supabase
+    const { error: insertError } = await supabase
+      .from('profiles')
+      .insert([{
+        id,
+        username,
+        email,
+        password_hash: passwordHash,
+        first_name,
+        last_name,
+        civility: civility || 'M.',
+        role,
+        service: service || '',
+        pin: pin || null
+      }]);
+
+    if (insertError) {
+      console.error('Erreur Supabase lors de la création de l\'utilisateur:', insertError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     // Générer un token JWT
     const token = jwt.sign({ userId: id, email }, JWT_SECRET, { expiresIn: '7d' });
@@ -400,14 +491,24 @@ app.post('/api/auth/signup', validateSignup, async (req, res) => {
 
 app.post('/api/auth/signin', rateLimitLogin, validateSignin, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour l\'authentification.' });
+    }
+
     const { email, password } = req.body;
 
-    const [users] = await pool.execute(
-      'SELECT * FROM profiles WHERE email = ?',
-      [email]
-    );
+    const { data: users, error: usersError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .limit(1);
 
-    if (users.length === 0) {
+    if (usersError) {
+      console.error('Erreur Supabase lors de la récupération de l\'utilisateur:', usersError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!users || users.length === 0) {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
 
@@ -450,13 +551,22 @@ app.put('/api/auth/password', authenticateToken, validatePasswordUpdate, async (
       return res.status(403).json({ error: 'Seul le super administrateur peut modifier les mots de passe.' });
     }
 
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour l\'authentification.' });
+    }
+
     const { password } = req.body;
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await pool.execute(
-      'UPDATE profiles SET password_hash = ? WHERE id = ?',
-      [passwordHash, req.user.id]
-    );
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ password_hash: passwordHash })
+      .eq('id', req.user.id);
+
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour du mot de passe:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     res.json({ message: 'Mot de passe mis à jour' });
   } catch (error) {
@@ -473,6 +583,10 @@ app.put('/api/auth/reset-password/:userId', authenticateToken, async (req, res) 
       return res.status(403).json({ error: 'Accès refusé. Seul le super administrateur peut réinitialiser les mots de passe.' });
     }
 
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour l\'authentification.' });
+    }
+
     const { password } = req.body;
     const { userId } = req.params;
 
@@ -481,19 +595,34 @@ app.put('/api/auth/reset-password/:userId', authenticateToken, async (req, res) 
     }
 
     // Vérifier que l'utilisateur cible existe
-    const [users] = await pool.execute('SELECT id FROM profiles WHERE id = ?', [userId]);
-    if (users.length === 0) {
+    const { data: users, error: usersError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .limit(1);
+
+    if (usersError) {
+      console.error('Erreur Supabase lors de la vérification de l\'utilisateur cible:', usersError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!users || users.length === 0) {
       return res.status(404).json({ error: 'Utilisateur non trouvé' });
     }
 
     // Hasher le nouveau mot de passe
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Mettre à jour le mot de passe
-    await pool.execute(
-      'UPDATE profiles SET password_hash = ? WHERE id = ?',
-      [passwordHash, userId]
-    );
+    // Mettre à jour le mot de passe dans Supabase
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ password_hash: passwordHash })
+      .eq('id', userId);
+
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour du mot de passe (reset):', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     res.json({ success: true, message: 'Mot de passe réinitialisé avec succès' });
   } catch (error) {
@@ -505,10 +634,20 @@ app.put('/api/auth/reset-password/:userId', authenticateToken, async (req, res) 
 // Routes pour les profils
 app.get('/api/profiles', authenticateToken, async (req, res) => {
   try {
-    const [profiles] = await pool.execute(
-      'SELECT id, username, email, first_name, last_name, civility, role, service, pin, added_permissions, removed_permissions, created_at FROM profiles'
-    );
-    res.json(profiles);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les profils.' });
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, email, first_name, last_name, civility, role, service, pin, added_permissions, removed_permissions, created_at');
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des profils:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Erreur lors de la récupération des profils:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -517,14 +656,26 @@ app.get('/api/profiles', authenticateToken, async (req, res) => {
 
 app.get('/api/profiles/:id', authenticateToken, async (req, res) => {
   try {
-    const [profiles] = await pool.execute(
-      'SELECT id, username, email, first_name, last_name, civility, role, service, pin, added_permissions, removed_permissions FROM profiles WHERE id = ?',
-      [req.params.id]
-    );
-    if (profiles.length === 0) {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les profils.' });
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, email, first_name, last_name, civility, role, service, pin, added_permissions, removed_permissions')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Erreur Supabase lors de la récupération du profil:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!data) {
       return res.status(404).json({ error: 'Profil non trouvé' });
     }
-    res.json(profiles[0]);
+
+    res.json(data);
   } catch (error) {
     console.error('Erreur lors de la récupération du profil:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -533,11 +684,25 @@ app.get('/api/profiles/:id', authenticateToken, async (req, res) => {
 
 app.put('/api/profiles/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les profils.' });
+    }
+
     const { added_permissions, removed_permissions } = req.body;
-    await pool.execute(
-      'UPDATE profiles SET added_permissions = ?, removed_permissions = ? WHERE id = ?',
-      [JSON.stringify(added_permissions || []), JSON.stringify(removed_permissions || []), req.params.id]
-    );
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        added_permissions: added_permissions || [],
+        removed_permissions: removed_permissions || []
+      })
+      .eq('id', req.params.id);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la mise à jour du profil:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({ message: 'Profil mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du profil:', error);
@@ -552,7 +717,20 @@ app.delete('/api/profiles/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Accès refusé' });
     }
 
-    await pool.execute('DELETE FROM profiles WHERE id = ?', [req.params.id]);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les profils.' });
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la suppression de l\'utilisateur:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({ message: 'Utilisateur supprimé' });
   } catch (error) {
     console.error('Erreur lors de la suppression de l\'utilisateur:', error);
@@ -574,49 +752,47 @@ const safeJsonParse = (value, defaultValue = null) => {
   }
 };
 
-// Routes pour les incidents
+// Routes pour les incidents (Supabase)
 app.get('/api/incidents', authenticateToken, async (req, res) => {
   try {
-    const [incidents] = await pool.execute(
-      'SELECT * FROM incidents ORDER BY date_creation DESC'
-    );
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les incidents.' });
+    }
+
+    const { data, error } = await supabase
+      .from('incidents')
+      .select('*')
+      .order('date_creation', { ascending: false });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des incidents:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const incidents = data || [];
+
     res.json(incidents.map(inc => {
-      // Debug: vérifier la priorité dans la DB
       let rawPriorite = inc.priorite;
       
-      // Conversion explicite en string (MySQL peut retourner des Buffers ou d'autres types)
       if (rawPriorite != null && rawPriorite !== undefined) {
-        // Si c'est un Buffer, le convertir en string
-        if (Buffer.isBuffer(rawPriorite)) {
-          rawPriorite = rawPriorite.toString('utf8');
-        }
-        // Si c'est un objet avec une méthode toString, l'utiliser
-        else if (typeof rawPriorite === 'object' && rawPriorite.toString) {
+        if (typeof rawPriorite === 'object' && rawPriorite.toString) {
           rawPriorite = rawPriorite.toString();
-        }
-        // Sinon convertir en string
-        else {
+        } else {
           rawPriorite = String(rawPriorite);
         }
       }
       
-      console.log('Incident priorité DB:', inc.id, 'priorité brute:', rawPriorite, 'type:', typeof rawPriorite, 'valeur:', JSON.stringify(rawPriorite));
-      
-      // Normaliser la priorité (enlever espaces, convertir en minuscules)
-      let normalizedPriorite = 'moyenne'; // Valeur par défaut
+      let normalizedPriorite = 'moyenne';
       if (rawPriorite && typeof rawPriorite === 'string') {
         normalizedPriorite = rawPriorite.trim().toLowerCase();
       }
       
-      // S'assurer que la priorité existe et est valide
       const validPriorities = ['faible', 'moyenne', 'haute', 'critique'];
       const priorite = validPriorities.includes(normalizedPriorite) ? normalizedPriorite : 'moyenne';
       
-      console.log('Incident priorité normalisée:', inc.id, 'raw:', rawPriorite, 'normalized:', normalizedPriorite, 'final:', priorite);
-      
       return {
         ...inc,
-        priorite: priorite, // Forcer la priorité à une valeur valide
+        priorite,
         assigned_to_name: inc.assigned_to_name || null,
         prestataire: inc.prestataire || null,
         photo_urls: (() => {
@@ -640,19 +816,19 @@ app.get('/api/incidents', authenticateToken, async (req, res) => {
 
 app.post('/api/incidents', authenticateToken, validateIncident, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les incidents.' });
+    }
+
     const { type, description, priorite, service, lieu, photo_urls } = req.body;
     const id = uuidv4();
     
-    // Debug: vérifier la priorité reçue après validation middleware
     console.log('POST /api/incidents - Body complet:', JSON.stringify(req.body));
     console.log('POST /api/incidents - priorite depuis req.body:', priorite, 'type:', typeof priorite);
     console.log('POST /api/incidents - req.body.priorite:', req.body.priorite, 'type:', typeof req.body.priorite);
     
-    // La priorité devrait déjà être validée et préservée par le middleware
-    // Utiliser directement req.body.priorite qui a été normalisé par le middleware
     let finalPriorite = req.body.priorite || 'moyenne';
     
-    // Normaliser la priorité (minuscules, sans espaces) - double vérification
     if (finalPriorite && typeof finalPriorite === 'string') {
       const normalized = finalPriorite.trim().toLowerCase();
       const validPriorities = ['faible', 'moyenne', 'haute', 'critique'];
@@ -669,31 +845,43 @@ app.post('/api/incidents', authenticateToken, validateIncident, async (req, res)
 
     console.log('POST /api/incidents - Valeur de priorité finale à insérer:', finalPriorite, 'type:', typeof finalPriorite);
     
-    await pool.execute(
-      `INSERT INTO incidents (id, type, description, reported_by, statut, priorite, service, lieu, photo_urls, assigned_to_name)
-       VALUES (?, ?, ?, ?, 'nouveau', ?, ?, ?, ?, NULL)`,
-      [id, type, description, req.user.id, finalPriorite, service, lieu, JSON.stringify(photo_urls || [])]
-    );
+    const payload = {
+      id,
+      type,
+      description,
+      reported_by: req.user.id,
+      statut: 'nouveau',
+      priorite: finalPriorite,
+      service,
+      lieu,
+      photo_urls: photo_urls || [],
+      assigned_to_name: null
+    };
 
-    // Vérifier que la priorité a bien été sauvegardée (immédiatement après insertion)
-    const [savedIncident] = await pool.execute(
-      'SELECT priorite, CAST(priorite AS CHAR) as priorite_str FROM incidents WHERE id = ?',
-      [id]
-    );
-    
-    const savedPriorite = savedIncident[0]?.priorite;
-    const savedPrioriteStr = savedIncident[0]?.priorite_str;
-    console.log('Priorité sauvegardée en DB (raw):', savedPriorite, 'type:', typeof savedPriorite);
-    console.log('Priorité sauvegardée en DB (as CHAR):', savedPrioriteStr, 'type:', typeof savedPrioriteStr);
-    
-    // Si la priorité sauvegardée ne correspond pas, c'est qu'il y a un problème
-    if (savedPriorite !== finalPriorite) {
-      console.error('ERREUR: Priorité différente! Insérée:', finalPriorite, 'Récupérée:', savedPriorite);
+    const { error: insertError } = await supabase
+      .from('incidents')
+      .insert([payload]);
+
+    if (insertError) {
+      console.error('Erreur Supabase lors de la création de l\'incident:', insertError);
+      return res.status(500).json({ error: 'Erreur serveur' });
     }
 
-    // Notification réelle : alerter les superviseurs QHSE
-    const [reporter] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
-    const reporterName = reporter[0] ? `${reporter[0].first_name || ''} ${reporter[0].last_name || ''}`.trim() || 'Un utilisateur' : 'Un utilisateur';
+    let reporterName = 'Un utilisateur';
+    try {
+      const { data: reporter, error: reporterError } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', req.user.id)
+        .maybeSingle();
+
+      if (!reporterError && reporter) {
+        reporterName = `${reporter.first_name || ''} ${reporter.last_name || ''}`.trim() || 'Un utilisateur';
+      }
+    } catch (err) {
+      console.warn('Impossible de récupérer le nom du rapporteur depuis Supabase:', err);
+    }
+
     const supervisorIds = await getSupervisorIds();
     for (const sid of supervisorIds) {
       await createNotification(sid, `Nouvel incident (${type}) signalé par ${reporterName}.`, 'qhseTickets');
@@ -708,17 +896,27 @@ app.post('/api/incidents', authenticateToken, validateIncident, async (req, res)
 
 app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les incidents.' });
+    }
+
     const { statut, assigned_to, assigned_to_name, prestataire, priorite, deadline, report } = req.body;
     
-    // Récupérer l'incident existant pour vérifier les permissions
-    const [incidents] = await pool.execute('SELECT * FROM incidents WHERE id = ?', [req.params.id]);
-    if (incidents.length === 0) {
+    const { data: incidentRows, error: fetchError } = await supabase
+      .from('incidents')
+      .select('*')
+      .eq('id', req.params.id);
+
+    if (fetchError) {
+      console.error('Erreur Supabase lors de la récupération de l\'incident:', fetchError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!incidentRows || incidentRows.length === 0) {
       return res.status(404).json({ error: 'Incident non trouvé' });
     }
-    const incident = incidents[0];
+    const incident = incidentRows[0];
 
-    // Si on essaie d'assigner ou de modifier la priorité/déadline, seul le superviseur QHSE peut le faire
-    // (sauf si c'est juste une mise à jour de statut par l'assigné lui-même)
     if (assigned_to !== undefined || priorite !== undefined || deadline !== undefined) {
       const isStatusUpdateOnly = statut !== undefined && 
                                   assigned_to === undefined && 
@@ -726,7 +924,6 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
                                   deadline === undefined &&
                                   report === undefined;
       
-      // Si ce n'est pas juste une mise à jour de statut, ou si on essaie d'assigner, vérifier les permissions
       if (!isStatusUpdateOnly || assigned_to !== undefined) {
         if (req.user.role !== 'superviseur_qhse' && req.user.role !== 'superadmin') {
           return res.status(403).json({ error: 'Seul le superviseur QHSE peut assigner ou planifier des interventions' });
@@ -734,69 +931,67 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
       }
     }
 
-    const updates = [];
-    const values = [];
+    const updates = {};
 
     if (statut !== undefined) {
-      updates.push('statut = ?');
-      values.push(statut);
+      updates.statut = statut;
     }
     if (assigned_to !== undefined) {
-      updates.push('assigned_to = ?');
-      values.push(assigned_to);
-      
-      // Si assigned_to_name n'est pas fourni mais assigned_to l'est, récupérer le nom depuis la base
-      if (assigned_to_name === undefined) {
+      updates.assigned_to = assigned_to;
+
+      if (assigned_to_name === undefined && assigned_to) {
         try {
-          const [userRows] = await pool.execute('SELECT first_name, last_name, name, username FROM profiles WHERE id = ?', [assigned_to]);
-          if (userRows.length > 0) {
+          const { data: userRows, error: userError } = await supabase
+            .from('profiles')
+            .select('first_name, last_name, name, username')
+            .eq('id', assigned_to);
+
+          if (!userError && userRows && userRows.length > 0) {
             const user = userRows[0];
             const nameParts = [user.first_name, user.last_name].filter(Boolean);
             const fullName = nameParts.length > 0 ? nameParts.join(' ') : (user.name || user.username || null);
             if (fullName) {
-              updates.push('assigned_to_name = ?');
-              values.push(fullName);
+              updates.assigned_to_name = fullName;
             }
           }
         } catch (err) {
-          console.error('Erreur lors de la récupération du nom de l\'utilisateur:', err);
+          console.error('Erreur lors de la récupération du nom de l\'utilisateur (Supabase):', err);
         }
-      } else if (assigned_to_name !== null) {
-        updates.push('assigned_to_name = ?');
-        values.push(assigned_to_name);
-      } else {
-        // Si assigned_to_name est explicitement null, le mettre à null
-        updates.push('assigned_to_name = NULL');
+      } else if (assigned_to_name !== null && assigned_to_name !== undefined) {
+        updates.assigned_to_name = assigned_to_name;
+      } else if (assigned_to_name === null) {
+        updates.assigned_to_name = null;
       }
     } else if (assigned_to_name !== undefined) {
-      // Si seulement assigned_to_name est fourni (sans assigned_to)
-      updates.push('assigned_to_name = ?');
-      values.push(assigned_to_name);
+      updates.assigned_to_name = assigned_to_name;
     }
     if (priorite !== undefined) {
-      updates.push('priorite = ?');
-      values.push(priorite);
+      updates.priorite = priorite;
     }
     if (deadline !== undefined) {
-      updates.push('deadline = ?');
-      values.push(deadline);
+      updates.deadline = deadline;
     }
     if (prestataire !== undefined) {
-      updates.push('prestataire = ?');
-      values.push(prestataire || null);
+      updates.prestataire = prestataire || null;
     }
     if (report !== undefined) {
-      updates.push('report = ?');
-      values.push(JSON.stringify(report));
+      updates.report = report;
     }
 
-    values.push(req.params.id);
-    await pool.execute(
-      `UPDATE incidents SET ${updates.join(', ')} WHERE id = ?`,
-      values
-    );
+    if (Object.keys(updates).length === 0) {
+      return res.json({ success: true });
+    }
 
-    // Notifications réelles selon les modifications
+    const { error: updateError } = await supabase
+      .from('incidents')
+      .update(updates)
+      .eq('id', req.params.id);
+
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour de l\'incident:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     const incidentIdShort = req.params.id.substring(0, 8);
     const link = 'qhseTickets';
 
@@ -842,16 +1037,29 @@ app.put('/api/incidents/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Routes pour les commentaires d'incidents
+// Routes pour les commentaires d'incidents (Supabase)
 app.get('/api/incidents/:id/comments', authenticateToken, async (req, res) => {
   try {
-    const [comments] = await pool.execute(
-      'SELECT * FROM incident_comments WHERE incident_id = ? ORDER BY created_at DESC',
-      [req.params.id]
-    );
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les commentaires d\'incidents.' });
+    }
+
+    const { data, error } = await supabase
+      .from('incident_comments')
+      .select('*')
+      .eq('incident_id', req.params.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des commentaires:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const comments = data || [];
+
     res.json(comments.map(c => ({
       ...c,
-      created_at: new Date(c.created_at),
+      created_at: c.created_at ? new Date(c.created_at) : undefined,
       updated_at: c.updated_at ? new Date(c.updated_at) : undefined
     })));
   } catch (error) {
@@ -862,22 +1070,39 @@ app.get('/api/incidents/:id/comments', authenticateToken, async (req, res) => {
 
 app.post('/api/incidents/:id/comments', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les commentaires d\'incidents.' });
+    }
+
     const { comment, user_name } = req.body;
     if (!comment || !comment.trim()) {
       return res.status(400).json({ error: 'Le commentaire ne peut pas être vide' });
     }
     
     const id = uuidv4();
-    await pool.execute(
-      'INSERT INTO incident_comments (id, incident_id, user_id, user_name, comment) VALUES (?, ?, ?, ?, ?)',
-      [id, req.params.id, req.user.id, user_name || req.user.username, comment.trim()]
-    );
-    
-    const [newComment] = await pool.execute('SELECT * FROM incident_comments WHERE id = ?', [id]);
+    const payload = {
+      id,
+      incident_id: req.params.id,
+      user_id: req.user.id,
+      user_name: user_name || req.user.username,
+      comment: comment.trim()
+    };
+
+    const { data, error } = await supabase
+      .from('incident_comments')
+      .insert([payload])
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Erreur Supabase lors de l\'ajout du commentaire:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({
-      ...newComment[0],
-      created_at: new Date(newComment[0].created_at),
-      updated_at: newComment[0].updated_at ? new Date(newComment[0].updated_at) : undefined
+      ...data,
+      created_at: data.created_at ? new Date(data.created_at) : undefined,
+      updated_at: data.updated_at ? new Date(data.updated_at) : undefined
     });
   } catch (error) {
     console.error('Erreur lors de l\'ajout du commentaire:', error);
@@ -887,11 +1112,23 @@ app.post('/api/incidents/:id/comments', authenticateToken, async (req, res) => {
 
 app.delete('/api/incidents/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
-    const [incidents] = await pool.execute('SELECT reported_by FROM incidents WHERE id = ?', [id]);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les incidents.' });
+    }
 
-    if (incidents.length === 0) {
-      // Déjà supprimé ou inexistant : considérer comme succès idempotent
+    const { id } = req.params;
+
+    const { data: incidents, error: fetchError } = await supabase
+      .from('incidents')
+      .select('reported_by')
+      .eq('id', id);
+
+    if (fetchError) {
+      console.error('Erreur Supabase lors de la récupération de l\'incident pour suppression:', fetchError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!incidents || incidents.length === 0) {
       return res.json({ success: true, message: 'Incident déjà supprimé.' });
     }
 
@@ -902,7 +1139,16 @@ app.delete('/api/incidents/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à supprimer cet incident.' });
     }
 
-    await pool.execute('DELETE FROM incidents WHERE id = ?', [id]);
+    const { error: deleteError } = await supabase
+      .from('incidents')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('Erreur Supabase lors de la suppression de l\'incident:', deleteError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Erreur lors de la suppression de l\'incident:', error);
@@ -986,13 +1232,24 @@ app.post('/api/medical-waste/upload-images', authenticateToken, (req, res, next)
   }
 });
 
-// Routes pour les visiteurs
+// Routes pour les visiteurs (Supabase si configuré)
 app.get('/api/visitors', authenticateToken, async (req, res) => {
   try {
-    const [visitors] = await pool.execute(
-      'SELECT * FROM visitors ORDER BY entry_time DESC'
-    );
-    res.json(visitors);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré côté backend.' });
+    }
+
+    const { data, error } = await supabase
+      .from('visitors')
+      .select('*')
+      .order('entry_time', { ascending: false });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des visiteurs:', error.message);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Erreur lors de la récupération des visiteurs:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -1001,23 +1258,60 @@ app.get('/api/visitors', authenticateToken, async (req, res) => {
 
 app.post('/api/visitors', authenticateToken, validateVisitor, async (req, res) => {
   try {
-    const { full_name, id_document, reason, destination, person_to_see } = req.body;
-    const id = uuidv4();
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré côté backend.' });
+    }
 
-    await pool.execute(
-      `INSERT INTO visitors (id, full_name, id_document, reason, destination, person_to_see, registered_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, full_name, id_document, reason, destination, person_to_see, req.user.id]
-    );
+    const {
+      full_name, id_document, reason, destination, person_to_see,
+      company, visit_type, id_verified, badge_code, entry_signature, access_observations
+    } = req.body;
 
-    const [agent] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
-    const agentName = agent[0] ? `${agent[0].first_name || ''} ${agent[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
+    const payload = {
+      full_name,
+      id_document,
+      reason: reason || null,
+      destination: destination || null,
+      person_to_see: person_to_see || null,
+      company: company || null,
+      visit_type: visit_type || null,
+      id_verified: !!id_verified,
+      badge_code: badge_code || null,
+      entry_signature: entry_signature || null,
+      access_observations: access_observations || null,
+      // ⚠️ Temporairement, on ne lie pas le visiteur à un profil Supabase
+      // pour éviter la violation de contrainte tant que les profils ne sont
+      // pas synchronisés dans la table public.profiles.
+      registered_by: null,
+    };
+
+    const { data, error } = await supabase
+      .from('visitors')
+      .insert(payload)
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('Erreur Supabase lors de l\'enregistrement du visiteur:', error.message);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const { data: agentData, error: agentError } = await supabase
+      .from('profiles')
+      .select('first_name,last_name')
+      .eq('id', req.user.id)
+      .single();
+
+    const agentName = agentError
+      ? 'Un agent'
+      : `${agentData?.first_name || ''} ${agentData?.last_name || ''}`.trim() || 'Un agent';
+
     const ids = await getUserIdsByRoles(['superviseur_agent_securite', 'superviseur_qhse', 'superadmin']);
     for (const uid of ids) {
       await createNotification(uid, `Nouveau visiteur enregistré: ${full_name} par ${agentName}.`, 'dashboardSecurite');
     }
 
-    res.json({ id, message: 'Visiteur enregistré' });
+    res.json({ id: data.id, message: 'Visiteur enregistré' });
   } catch (error) {
     console.error('Erreur lors de l\'enregistrement du visiteur:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -1026,10 +1320,20 @@ app.post('/api/visitors', authenticateToken, validateVisitor, async (req, res) =
 
 app.put('/api/visitors/:id/signout', authenticateToken, async (req, res) => {
   try {
-    await pool.execute(
-      'UPDATE visitors SET exit_time = NOW() WHERE id = ?',
-      [req.params.id]
-    );
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré côté backend.' });
+    }
+
+    const { error } = await supabase
+      .from('visitors')
+      .update({ exit_time: new Date().toISOString() })
+      .eq('id', req.params.id);
+
+    if (error) {
+      console.error('Erreur Supabase lors de l\'enregistrement de la sortie:', error.message);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({ message: 'Sortie enregistrée' });
   } catch (error) {
     console.error('Erreur lors de l\'enregistrement de la sortie:', error);
@@ -1048,11 +1352,23 @@ app.delete('/api/visitors/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Routes pour les équipements biomédicaux
+// Routes pour les équipements biomédicaux (Supabase)
 app.get('/api/biomedical-equipment', authenticateToken, async (req, res) => {
   try {
-    const [equipment] = await pool.execute('SELECT * FROM biomedical_equipment');
-    res.json(equipment);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les équipements biomédicaux.' });
+    }
+
+    const { data, error } = await supabase
+      .from('biomedical_equipment')
+      .select('*');
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des équipements:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Erreur lors de la récupération des équipements:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -1061,36 +1377,36 @@ app.get('/api/biomedical-equipment', authenticateToken, async (req, res) => {
 
 app.post('/api/biomedical-equipment', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les équipements biomédicaux.' });
+    }
+
     const { name, serial_number, location, model, department, notes } = req.body;
     const id = uuidv4();
     const nextMaintenance = new Date();
     nextMaintenance.setMonth(nextMaintenance.getMonth() + 6);
 
-    await pool.execute(
-      `INSERT INTO biomedical_equipment (
+    const payload = {
         id,
         name,
-        model,
+      model: model || 'N/A',
         serial_number,
-        department,
+      department: department || 'N/A',
         location,
-        status,
-        last_maintenance,
-        next_maintenance,
-        notes
-      )
-       VALUES (?, ?, ?, ?, ?, ?, 'opérationnel', NOW(), ?, ?)`,
-      [
-        id,
-        name,
-        model || 'N/A',
-        serial_number,
-        department || 'N/A',
-        location,
-        nextMaintenance,
-        notes || null
-      ]
-    );
+      status: 'opérationnel',
+      last_maintenance: new Date().toISOString(),
+      next_maintenance: nextMaintenance.toISOString(),
+      notes: notes || null
+    };
+
+    const { error } = await supabase
+      .from('biomedical_equipment')
+      .insert([payload]);
+
+    if (error) {
+      console.error('Erreur Supabase lors de l\'ajout de l\'équipement:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     res.json({ id, message: 'Équipement ajouté' });
   } catch (error) {
@@ -1101,15 +1417,43 @@ app.post('/api/biomedical-equipment', authenticateToken, async (req, res) => {
 
 app.put('/api/biomedical-equipment/:id/status', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les équipements biomédicaux.' });
+    }
+
     const { status } = req.body;
-    const [equipment] = await pool.execute('SELECT name FROM biomedical_equipment WHERE id = ?', [req.params.id]);
-    await pool.execute('UPDATE biomedical_equipment SET status = ? WHERE id = ?', [status, req.params.id]);
-    if (status === 'hors_service' && equipment[0]) {
+    const { data: equipmentRows, error: fetchError } = await supabase
+      .from('biomedical_equipment')
+      .select('id, name')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Erreur Supabase lors de la récupération de l\'équipement:', fetchError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!equipmentRows) {
+      return res.status(404).json({ error: 'Équipement non trouvé' });
+    }
+
+    const { error: updateError } = await supabase
+      .from('biomedical_equipment')
+      .update({ status })
+      .eq('id', req.params.id);
+
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour du statut de l\'équipement:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (status === 'hors_service') {
       const ids = await getSupervisorIds();
       for (const uid of ids) {
-        await createNotification(uid, `Équipement biomédical HS: ${equipment[0].name}.`, 'biomedical');
+        await createNotification(uid, `Équipement biomédical HS: ${equipmentRows.name}.`, 'biomedical');
       }
     }
+
     res.json({ message: 'Statut mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du statut:', error);
@@ -1117,11 +1461,24 @@ app.put('/api/biomedical-equipment/:id/status', authenticateToken, async (req, r
   }
 });
 
-// Routes pour les tâches de maintenance
+// Routes pour les tâches de maintenance (Supabase)
 app.get('/api/maintenance-tasks', authenticateToken, async (req, res) => {
   try {
-    const [tasks] = await pool.execute('SELECT * FROM maintenance_tasks ORDER BY scheduled_date');
-    res.json(tasks);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les tâches de maintenance.' });
+    }
+
+    const { data, error } = await supabase
+      .from('maintenance_tasks')
+      .select('*')
+      .order('scheduled_date', { ascending: true });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des tâches:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Erreur lors de la récupération des tâches:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -1130,37 +1487,35 @@ app.get('/api/maintenance-tasks', authenticateToken, async (req, res) => {
 
 app.post('/api/maintenance-tasks', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les tâches de maintenance.' });
+    }
+
     const { equipment_id, type, description, technician_id, scheduled_date, supplier_name, supplier_phone, comments } = req.body;
     const id = uuidv4();
 
-    await pool.execute(
-      `INSERT INTO maintenance_tasks (
+    const payload = {
         id,
         equipment_id,
         type,
         description,
-        technician_id,
+      technician_id: technician_id || null,
         scheduled_date,
-        supplier_name,
-        supplier_phone,
-        comments,
-        status
-      )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
-       [
-        id,
-        equipment_id,
-        type,
-        description,
-        technician_id || null,
-        scheduled_date,
-        supplier_name || null,
-        supplier_phone || null,
-        comments || null
-      ]
-    );
+      supplier_name: supplier_name || null,
+      supplier_phone: supplier_phone || null,
+      comments: comments || null,
+      status: 'planifiée'
+    };
 
-    // Notification réelle : alerter le technicien assigné
+    const { error } = await supabase
+      .from('maintenance_tasks')
+      .insert([payload]);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la planification de la tâche:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     if (technician_id) {
       await createNotification(technician_id, 'Nouvelle tâche de maintenance pour vous.', 'biomedical');
     }
@@ -1174,23 +1529,49 @@ app.post('/api/maintenance-tasks', authenticateToken, async (req, res) => {
 
 app.put('/api/maintenance-tasks/:id/status', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les tâches de maintenance.' });
+    }
+
     const { status } = req.body;
     const validStatuses = ['planifiée', 'en_cours', 'terminée', 'annulée'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Statut invalide' });
     }
-    const [tasks] = await pool.execute('SELECT type, description, technician_id FROM maintenance_tasks WHERE id = ?', [req.params.id]);
-    const [result] = await pool.execute('UPDATE maintenance_tasks SET status = ? WHERE id = ?', [status, req.params.id]);
-    if (result.affectedRows === 0) {
+
+    const { data: tasks, error: fetchError } = await supabase
+      .from('maintenance_tasks')
+      .select('id, type, description, technician_id')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Erreur Supabase lors de la récupération de la tâche:', fetchError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!tasks) {
       return res.status(404).json({ error: 'Tâche non trouvée' });
     }
-    const task = tasks[0];
+
+    const { error: updateError } = await supabase
+      .from('maintenance_tasks')
+      .update({ status })
+      .eq('id', req.params.id);
+
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour du statut de la tâche:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const task = tasks;
     const statusLabels = { planifiée: 'Planifiée', en_cours: 'En cours', terminée: 'Terminée', annulée: 'Annulée' };
     const label = statusLabels[status] || status;
     const taskTitle = task?.type || task?.description || 'Tâche';
     if (task?.technician_id) {
       await createNotification(task.technician_id, `La tâche "${taskTitle}" est maintenant: ${label}`, 'biomedical');
     }
+
     res.json({ message: 'Statut de la tâche mis à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour du statut de la tâche:', error);
@@ -1201,14 +1582,46 @@ app.put('/api/maintenance-tasks/:id/status', authenticateToken, async (req, res)
 // Routes pour les Accidents d'Exposition au Sang (AES)
 app.get('/api/aes', authenticateToken, async (req, res) => {
   try {
-    const [aes] = await pool.execute(
-      `SELECT a.*, 
-              CONCAT(p.first_name, ' ', p.last_name) as created_by_name
-       FROM aes a
-       LEFT JOIN profiles p ON a.created_by = p.id
-       ORDER BY a.date_aes DESC, a.heure_aes DESC`
-    );
-    res.json(aes);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les AES.' });
+    }
+
+    const { data, error } = await supabase
+      .from('aes')
+      .select('*')
+      .order('date_aes', { ascending: false })
+      .order('heure_aes', { ascending: false });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des AES:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const rows = data || [];
+
+    const creatorIds = Array.from(new Set(rows.map(a => a.created_by).filter(Boolean)));
+    let profilesById = {};
+    if (creatorIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name')
+        .in('id', creatorIds);
+
+      if (!profilesError && profiles) {
+        profilesById = profiles.reduce((acc, p) => {
+          acc[p.id] = p;
+          return acc;
+        }, {});
+      }
+    }
+
+    res.json(rows.map(a => {
+      const creator = a.created_by ? profilesById[a.created_by] : null;
+      const created_by_name = creator
+        ? `${creator.first_name || ''} ${creator.last_name || ''}`.trim() || null
+        : null;
+      return { ...a, created_by_name };
+    }));
   } catch (error) {
     console.error('Erreur lors de la récupération des AES:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -1217,18 +1630,39 @@ app.get('/api/aes', authenticateToken, async (req, res) => {
 
 app.get('/api/aes/:id', authenticateToken, async (req, res) => {
   try {
-    const [aes] = await pool.execute(
-      `SELECT a.*, 
-              CONCAT(p.first_name, ' ', p.last_name) as created_by_name
-       FROM aes a
-       LEFT JOIN profiles p ON a.created_by = p.id
-       WHERE a.id = ?`,
-      [req.params.id]
-    );
-    if (aes.length === 0) {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les AES.' });
+    }
+
+    const { data, error } = await supabase
+      .from('aes')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Erreur Supabase lors de la récupération de l\'AES:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!data) {
       return res.status(404).json({ error: 'AES non trouvé' });
     }
-    res.json(aes[0]);
+
+    let created_by_name = null;
+    if (data.created_by) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', data.created_by)
+        .maybeSingle();
+
+      if (!profileError && profile) {
+        created_by_name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || null;
+      }
+    }
+
+    res.json({ ...data, created_by_name });
   } catch (error) {
     console.error('Erreur lors de la récupération de l\'AES:', error);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -1237,6 +1671,10 @@ app.get('/api/aes/:id', authenticateToken, async (req, res) => {
 
 app.post('/api/aes', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les AES.' });
+    }
+
     console.log('POST /api/aes - Données reçues:', JSON.stringify(req.body, null, 2));
     
     const {
@@ -1257,91 +1695,76 @@ app.post('/api/aes', authenticateToken, async (req, res) => {
 
     const id = uuidv4();
     
-    // Fonction helper pour convertir undefined en null
     const toNull = (val) => (val === undefined || val === '') ? null : val;
     const toBool = (val) => val === true ? true : (val === false ? false : null);
     
-    // Préparer les valeurs pour l'insertion
-    const values = [
+    const payload = {
       id, 
       agent_nom, 
       agent_prenom, 
-      toNull(agent_matricule), 
-      toNull(agent_fonction), 
-      toNull(agent_service), 
-      toNull(agent_telephone), 
+      agent_matricule: toNull(agent_matricule),
+      agent_fonction: toNull(agent_fonction),
+      agent_service: toNull(agent_service),
+      agent_telephone: toNull(agent_telephone),
       agent_statut,
       date_aes, 
       heure_aes, 
-      toNull(lieu_precis), 
+      lieu_precis: toNull(lieu_precis),
       type_exposition, 
-      toNull(description_circonstances),
-      toNull(type_dispositif), 
-      toBool(usage_unique), 
-      toBool(souille_sang), 
-      toBool(dans_sac_dasri),
-      toBool(patient_source_identifiee), 
-      toNull(patient_code_identifiant), 
-      toBool(consentement_prelevement),
-      toBool(lavage_eau_savon), 
-      toBool(desinfection), 
-      toBool(rinçage_muqueuse), 
-      toNull(heure_premiers_soins),
-      toNull(medecin_referent_aes), 
-      examen_vih || false, 
-      examen_vhb || false, 
-      examen_vhc || false, 
-      toBool(traitement_arv_initie), 
-      toNull(date_debut_traitement),
-      toBool(resultat_agent_vih), 
-      toBool(resultat_agent_vhb), 
-      toBool(resultat_agent_vhc),
-      toBool(resultat_patient_vih), 
-      toBool(resultat_patient_vhb), 
-      toBool(resultat_patient_vhc), 
-      toNull(conduite_tenir),
-      toBool(orientation_infectiologue), 
-      toBool(orientation_psychologue), 
-      toNull(dates_suivi_prevues),
-      toNull(suivi_m1_date), 
-      toBool(suivi_m1_vih), 
-      toBool(suivi_m1_vhb), 
-      toBool(suivi_m1_vhc),
-      toNull(suivi_m6_date), 
-      toBool(suivi_m6_vih), 
-      toBool(suivi_m6_vhb), 
-      toBool(suivi_m6_vhc),
-      toNull(suivi_m9_date), 
-      toBool(suivi_m9_vih), 
-      toBool(suivi_m9_vhb), 
-      toBool(suivi_m9_vhc),
-      dossier_cloture || false, 
-      toNull(date_cloture), 
-      toNull(nom_signature_qhse), 
-      req.user.id
-    ];
-    
-    console.log('POST /api/aes - Nombre de valeurs:', values.length);
-    console.log('POST /api/aes - Valeurs:', JSON.stringify(values, null, 2));
+      description_circonstances: toNull(description_circonstances),
+      type_dispositif: toNull(type_dispositif),
+      usage_unique: toBool(usage_unique),
+      souille_sang: toBool(souille_sang),
+      dans_sac_dasri: toBool(dans_sac_dasri),
+      patient_source_identifiee: toBool(patient_source_identifiee),
+      patient_code_identifiant: toNull(patient_code_identifiant),
+      consentement_prelevement: toBool(consentement_prelevement),
+      lavage_eau_savon: toBool(lavage_eau_savon),
+      desinfection: toBool(desinfection),
+      rinçage_muqueuse: toBool(rinçage_muqueuse),
+      heure_premiers_soins: toNull(heure_premiers_soins),
+      medecin_referent_aes: toNull(medecin_referent_aes),
+      examen_vih: examen_vih || false,
+      examen_vhb: examen_vhb || false,
+      examen_vhc: examen_vhc || false,
+      traitement_arv_initie: toBool(traitement_arv_initie),
+      date_debut_traitement: toNull(date_debut_traitement),
+      resultat_agent_vih: toBool(resultat_agent_vih),
+      resultat_agent_vhb: toBool(resultat_agent_vhb),
+      resultat_agent_vhc: toBool(resultat_agent_vhc),
+      resultat_patient_vih: toBool(resultat_patient_vih),
+      resultat_patient_vhb: toBool(resultat_patient_vhb),
+      resultat_patient_vhc: toBool(resultat_patient_vhc),
+      conduite_tenir: toNull(conduite_tenir),
+      orientation_infectiologue: toBool(orientation_infectiologue),
+      orientation_psychologue: toBool(orientation_psychologue),
+      dates_suivi_prevues: toNull(dates_suivi_prevues),
+      suivi_m1_date: toNull(suivi_m1_date),
+      suivi_m1_vih: toBool(suivi_m1_vih),
+      suivi_m1_vhb: toBool(suivi_m1_vhb),
+      suivi_m1_vhc: toBool(suivi_m1_vhc),
+      suivi_m6_date: toNull(suivi_m6_date),
+      suivi_m6_vih: toBool(suivi_m6_vih),
+      suivi_m6_vhb: toBool(suivi_m6_vhb),
+      suivi_m6_vhc: toBool(suivi_m6_vhc),
+      suivi_m9_date: toNull(suivi_m9_date),
+      suivi_m9_vih: toBool(suivi_m9_vih),
+      suivi_m9_vhb: toBool(suivi_m9_vhb),
+      suivi_m9_vhc: toBool(suivi_m9_vhc),
+      dossier_cloture: dossier_cloture || false,
+      date_cloture: toNull(date_cloture),
+      nom_signature_qhse: toNull(nom_signature_qhse),
+      created_by: req.user.id
+    };
 
-    await pool.execute(
-      `INSERT INTO aes (
-        id, agent_nom, agent_prenom, agent_matricule, agent_fonction, agent_service, agent_telephone, agent_statut,
-        date_aes, heure_aes, lieu_precis, type_exposition, description_circonstances,
-        type_dispositif, usage_unique, souille_sang, dans_sac_dasri,
-        patient_source_identifiee, patient_code_identifiant, consentement_prelevement,
-        lavage_eau_savon, desinfection, rinçage_muqueuse, heure_premiers_soins,
-        medecin_referent_aes, examen_vih, examen_vhb, examen_vhc, traitement_arv_initie, date_debut_traitement,
-        resultat_agent_vih, resultat_agent_vhb, resultat_agent_vhc,
-        resultat_patient_vih, resultat_patient_vhb, resultat_patient_vhc, conduite_tenir,
-        orientation_infectiologue, orientation_psychologue, dates_suivi_prevues,
-        suivi_m1_date, suivi_m1_vih, suivi_m1_vhb, suivi_m1_vhc,
-        suivi_m6_date, suivi_m6_vih, suivi_m6_vhb, suivi_m6_vhc,
-        suivi_m9_date, suivi_m9_vih, suivi_m9_vhb, suivi_m9_vhc,
-        dossier_cloture, date_cloture, nom_signature_qhse, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      values
-    );
+    const { error } = await supabase
+      .from('aes')
+      .insert([payload]);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la création de l\'AES:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     console.log('POST /api/aes - AES créé avec succès, ID:', id);
     const ids = await getSupervisorIds();
@@ -1363,6 +1786,10 @@ app.post('/api/aes', authenticateToken, async (req, res) => {
 
 app.put('/api/aes/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les AES.' });
+    }
+
     console.log('PUT /api/aes/:id - Données reçues:', JSON.stringify(req.body, null, 2));
     
     const {
@@ -1381,14 +1808,9 @@ app.put('/api/aes/:id', authenticateToken, async (req, res) => {
       dossier_cloture, date_cloture, nom_signature_qhse
     } = req.body;
 
-    // Fonction helper pour convertir undefined en null
     const toNull = (val) => (val === undefined || val === '') ? null : val;
     const toBool = (val) => val === true ? true : (val === false ? false : null);
 
-    const updates = [];
-    const values = [];
-
-    // Construire dynamiquement la requête UPDATE avec gestion correcte des types
     const fields = {
       agent_nom, 
       agent_prenom, 
@@ -1446,26 +1868,26 @@ app.put('/api/aes/:id', authenticateToken, async (req, res) => {
       nom_signature_qhse: toNull(nom_signature_qhse)
     };
 
+    const updates = {};
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) {
-        updates.push(`${key} = ?`);
-        values.push(value);
+        updates[key] = value;
       }
     }
 
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'Aucune donnée à mettre à jour' });
     }
 
-    values.push(req.params.id);
+    const { error: updateError } = await supabase
+      .from('aes')
+      .update(updates)
+      .eq('id', req.params.id);
 
-    console.log('PUT /api/aes/:id - Requête UPDATE:', updates.join(', '));
-    console.log('PUT /api/aes/:id - Valeurs:', JSON.stringify(values, null, 2));
-
-    await pool.execute(
-      `UPDATE aes SET ${updates.join(', ')} WHERE id = ?`,
-      values
-    );
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour de l\'AES:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     console.log('PUT /api/aes/:id - AES mis à jour avec succès');
     res.json({ message: 'AES mis à jour avec succès' });
@@ -1482,10 +1904,20 @@ app.put('/api/aes/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/aes/:id', authenticateToken, async (req, res) => {
   try {
-    const [result] = await pool.execute('DELETE FROM aes WHERE id = ?', [req.params.id]);
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'AES non trouvé' });
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les AES.' });
     }
+
+    const { error } = await supabase
+      .from('aes')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la suppression de l\'AES:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({ message: 'AES supprimé avec succès' });
   } catch (error) {
     console.error('Erreur lors de la suppression de l\'AES:', error);
@@ -1496,6 +1928,72 @@ app.delete('/api/aes/:id', authenticateToken, async (req, res) => {
 // Routes pour les demandes d'accès aux caméras
 app.get('/api/camera-access-requests', authenticateToken, async (req, res) => {
   try {
+    // Branche Supabase principale
+    if (supabase) {
+      const { data: requests, error } = await supabase
+        .from('camera_access_requests')
+        .select('*')
+        .order('request_date', { ascending: false });
+
+      if (error) {
+        console.error('Erreur Supabase lors de la récupération des demandes d\'accès caméras:', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const rows = requests || [];
+      const requesterIds = Array.from(new Set(rows.map(r => r.requester_id).filter(Boolean)));
+
+      let profilesById = {};
+      if (requesterIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, service')
+          .in('id', requesterIds);
+
+        if (!profilesError && profiles) {
+          profilesById = profiles.reduce((acc, p) => {
+            acc[p.id] = p;
+            return acc;
+          }, {});
+        }
+      }
+
+      const normalized = rows.map(reqRow => {
+        const profile = reqRow.requester_id ? profilesById[reqRow.requester_id] : null;
+        const computedName = profile
+          ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || null
+          : null;
+        const computedService = profile ? profile.service || null : null;
+
+        const requester_name =
+          reqRow.requester_name && reqRow.requester_name.trim()
+            ? reqRow.requester_name
+            : computedName;
+        const requester_service =
+          reqRow.requester_service && reqRow.requester_service.trim()
+            ? reqRow.requester_service
+            : computedService;
+
+        const safeDate = (value) => (value ? new Date(value).toISOString() : null);
+
+        return {
+          ...reqRow,
+          requester_name,
+          requester_service,
+          request_date: safeDate(reqRow.request_date),
+          access_start_date: safeDate(reqRow.access_start_date),
+          access_end_date: safeDate(reqRow.access_end_date),
+          hierarchical_authorization_date: safeDate(reqRow.hierarchical_authorization_date),
+          qhse_validation_date: safeDate(reqRow.qhse_validation_date),
+          created_at: safeDate(reqRow.created_at),
+          updated_at: safeDate(reqRow.updated_at),
+        };
+      });
+
+      return res.json(normalized);
+    }
+
+    // Fallback MySQL: ancienne logique conservée uniquement en secours
     // Vérifier si la table existe, sinon la créer
     let hasTable = false;
     try {
@@ -1810,6 +2308,26 @@ app.put('/api/camera-access-requests/:id', authenticateToken, async (req, res) =
 
 app.delete('/api/camera-access-requests/:id', authenticateToken, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('camera_access_requests')
+        .delete()
+        .eq('id', req.params.id)
+        .select('id');
+
+      if (error) {
+        console.error('Erreur lors de la suppression de la demande (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: 'Demande non trouvée' });
+      }
+
+      return res.json({ message: 'Demande supprimée avec succès' });
+    }
+
+    // Fallback MySQL
     const [result] = await pool.execute('DELETE FROM camera_access_requests WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Demande non trouvée' });
@@ -1825,6 +2343,20 @@ app.delete('/api/camera-access-requests/:id', authenticateToken, async (req, res
 app.get('/api/rooms', authenticateToken, async (req, res) => {
   try {
     await ensureConsultationSchedule();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('rooms')
+        .select('*');
+
+      if (error) {
+        console.error('Erreur lors de la récupération des salles (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json(data);
+    }
+
+    // Fallback MySQL
     const [rooms] = await pool.execute('SELECT * FROM rooms');
     res.json(rooms);
   } catch (error) {
@@ -1837,6 +2369,20 @@ app.get('/api/rooms', authenticateToken, async (req, res) => {
 app.get('/api/doctors', authenticateToken, async (req, res) => {
   try {
     await ensureConsultationSchedule();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('doctors')
+        .select('*');
+
+      if (error) {
+        console.error('Erreur lors de la récupération des médecins (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json(data);
+    }
+
+    // Fallback MySQL
     const [doctors] = await pool.execute('SELECT * FROM doctors');
     res.json(doctors);
   } catch (error) {
@@ -1849,6 +2395,21 @@ app.get('/api/doctors', authenticateToken, async (req, res) => {
 app.get('/api/bookings', authenticateToken, async (req, res) => {
   try {
     await ensureConsultationSchedule();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .order('start_time', { ascending: true });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des réservations (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json(data);
+    }
+
+    // Fallback MySQL
     const [bookings] = await pool.execute('SELECT * FROM bookings ORDER BY start_time');
     res.json(bookings);
   } catch (error) {
@@ -1867,13 +2428,41 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
     const { room_id, title, start_time, end_time, doctor_id } = req.body;
     const id = uuidv4();
 
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('bookings')
+        .insert({
+          id,
+          room_id,
+          title,
+          booked_by: req.user.id,
+          start_time,
+          end_time,
+          doctor_id: doctor_id || null,
+          status: 'réservé'
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de la réservation (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const bookerName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'La secrétaire';
+      const supervisorIds = await getSupervisorIds();
+      for (const sid of supervisorIds) {
+        await createNotification(sid, `Nouvelle réservation de salle par ${bookerName}.`, 'planningSalles');
+      }
+
+      return res.json({ id, message: 'Réservation créée' });
+    }
+
+    // Fallback MySQL
     await pool.execute(
       `INSERT INTO bookings (id, room_id, title, booked_by, start_time, end_time, doctor_id, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'réservé')`,
       [id, room_id, title, req.user.id, start_time, end_time, doctor_id || null]
     );
 
-    // Notification réelle : alerter les superviseurs QHSE
     const [booker] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
     const bookerName = booker[0] ? `${booker[0].first_name || ''} ${booker[0].last_name || ''}`.trim() || 'La secrétaire' : 'La secrétaire';
     const supervisorIds = await getSupervisorIds();
@@ -1893,11 +2482,32 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
     const { room_id, title, start_time, end_time, doctor_id, status } = req.body;
     
     // Récupérer la réservation existante
-    const [bookings] = await pool.execute('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
-    if (bookings.length === 0) {
-      return res.status(404).json({ error: 'Réservation non trouvée' });
+    let booking;
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('id', req.params.id)
+        .limit(1);
+
+      if (error) {
+        console.error('Erreur lors de la récupération de la réservation (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: 'Réservation non trouvée' });
+      }
+
+      booking = data[0];
+    } else {
+      const [bookings] = await pool.execute('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
+      if (bookings.length === 0) {
+        return res.status(404).json({ error: 'Réservation non trouvée' });
+      }
+      booking = bookings[0];
     }
-    const booking = bookings[0];
 
     // Si c'est seulement une mise à jour du statut (démarrer/terminer), vérifier si c'est le médecin assigné
     // Comparer les dates correctement en convertissant en ISO string
@@ -1920,10 +2530,22 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
       // Permettre au médecin assigné de démarrer/terminer sa consultation
       // Vérifier que le médecin est assigné à cette réservation
       if (req.user.role === 'medecin' && booking.doctor_id && booking.doctor_id === req.user.id) {
-        await pool.execute(
-          `UPDATE bookings SET status = ? WHERE id = ?`,
-          [status, req.params.id]
-        );
+        if (supabase) {
+          const { error } = await supabase
+            .from('bookings')
+            .update({ status })
+            .eq('id', req.params.id);
+
+          if (error) {
+            console.error('Erreur lors de la mise à jour de la réservation (Supabase):', error.message);
+            return res.status(500).json({ error: 'Erreur serveur' });
+          }
+        } else {
+          await pool.execute(
+            `UPDATE bookings SET status = ? WHERE id = ?`,
+            [status, req.params.id]
+          );
+        }
         return res.json({ message: 'Réservation mise à jour' });
       }
     }
@@ -1933,10 +2555,29 @@ app.put('/api/bookings/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Seule la secrétaire peut modifier des réservations' });
     }
 
-    await pool.execute(
-      `UPDATE bookings SET room_id = ?, title = ?, start_time = ?, end_time = ?, doctor_id = ?, status = ? WHERE id = ?`,
-      [room_id, title, start_time, end_time, doctor_id || null, status, req.params.id]
-    );
+    if (supabase) {
+      const { error } = await supabase
+        .from('bookings')
+        .update({
+          room_id,
+          title,
+          start_time,
+          end_time,
+          doctor_id: doctor_id || null,
+          status
+        })
+        .eq('id', req.params.id);
+
+      if (error) {
+        console.error('Erreur lors de la mise à jour de la réservation (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      await pool.execute(
+        `UPDATE bookings SET room_id = ?, title = ?, start_time = ?, end_time = ?, doctor_id = ?, status = ? WHERE id = ?`,
+        [room_id, title, start_time, end_time, doctor_id || null, status, req.params.id]
+      );
+    }
     res.json({ message: 'Réservation mise à jour' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de la réservation:', error);
@@ -1951,6 +2592,21 @@ app.delete('/api/bookings/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Seule la secrétaire peut annuler des réservations' });
     }
 
+    if (supabase) {
+      const { error } = await supabase
+        .from('bookings')
+        .delete()
+        .eq('id', req.params.id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression de la réservation (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Réservation supprimée' });
+    }
+
+    // Fallback MySQL
     await pool.execute('DELETE FROM bookings WHERE id = ?', [req.params.id]);
     res.json({ message: 'Réservation supprimée' });
   } catch (error) {
@@ -1962,6 +2618,21 @@ app.delete('/api/bookings/:id', authenticateToken, async (req, res) => {
 // Routes pour les tâches planifiées
 app.get('/api/planned-tasks', authenticateToken, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('planned_tasks')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des tâches planifiées (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json(data || []);
+    }
+
+    // Fallback MySQL
     const [tasks] = await pool.execute(
       'SELECT * FROM planned_tasks ORDER BY created_at DESC'
     );
@@ -2039,13 +2710,39 @@ app.post('/api/planned-tasks', authenticateToken, async (req, res) => {
 
     const id = uuidv4();
 
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('planned_tasks')
+        .insert({
+          id,
+          title,
+          description,
+          assigned_to,
+          assignee_name: assignee_name || null,
+          created_by: req.user.id,
+          due_date,
+          status: 'à faire'
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de la tâche planifiée (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (assigned_to) {
+        await createNotification(assigned_to, `Nouvelle tâche planifiée: ${title}`, 'dashboardTechnicien');
+      }
+
+      return res.json({ id, message: 'Tâche créée' });
+    }
+
+    // Fallback MySQL
     await pool.execute(
       `INSERT INTO planned_tasks (id, title, description, assigned_to, assignee_name, created_by, due_date, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'à faire')`,
       [id, title, description, assigned_to, assignee_name || null, req.user.id, due_date]
     );
 
-    // Notification réelle : alerter l'assigné
     if (assigned_to) {
       await createNotification(assigned_to, `Nouvelle tâche planifiée: ${title}`, 'dashboardTechnicien');
     }
@@ -2060,9 +2757,44 @@ app.post('/api/planned-tasks', authenticateToken, async (req, res) => {
 app.put('/api/planned-tasks/:id', authenticateToken, async (req, res) => {
   try {
     const { status } = req.body;
-    const [tasks] = await pool.execute('SELECT title, created_by FROM planned_tasks WHERE id = ?', [req.params.id]);
-    await pool.execute('UPDATE planned_tasks SET status = ? WHERE id = ?', [status, req.params.id]);
-    const task = tasks[0];
+    let task = null;
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('planned_tasks')
+        .select('title, created_by')
+        .eq('id', req.params.id)
+        .limit(1);
+
+      if (error) {
+        console.error('Erreur lors de la récupération de la tâche planifiée (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: 'Tâche non trouvée' });
+      }
+
+      task = data[0];
+
+      const { error: updateError } = await supabase
+        .from('planned_tasks')
+        .update({ status })
+        .eq('id', req.params.id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour de la tâche planifiée (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const [tasks] = await pool.execute('SELECT title, created_by FROM planned_tasks WHERE id = ?', [req.params.id]);
+      if (tasks.length === 0) {
+        return res.status(404).json({ error: 'Tâche non trouvée' });
+      }
+      task = tasks[0];
+      await pool.execute('UPDATE planned_tasks SET status = ? WHERE id = ?', [status, req.params.id]);
+    }
+
     const statusLabels = { 'à faire': 'À faire', 'en_cours': 'En cours', 'terminée': 'Terminée', 'annulée': 'Annulée' };
     const label = statusLabels[status] || status;
     if (task?.created_by && label) {
@@ -2077,9 +2809,44 @@ app.put('/api/planned-tasks/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/planned-tasks/:id', authenticateToken, async (req, res) => {
   try {
-    const [tasks] = await pool.execute('SELECT title, assigned_to FROM planned_tasks WHERE id = ?', [req.params.id]);
-    const task = tasks[0];
-    await pool.execute('DELETE FROM planned_tasks WHERE id = ?', [req.params.id]);
+    let task = null;
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('planned_tasks')
+        .select('title, assigned_to')
+        .eq('id', req.params.id)
+        .limit(1);
+
+      if (error) {
+        console.error('Erreur lors de la récupération de la tâche à supprimer (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: 'Tâche non trouvée' });
+      }
+
+      task = data[0];
+
+      const { error: deleteError } = await supabase
+        .from('planned_tasks')
+        .delete()
+        .eq('id', req.params.id);
+
+      if (deleteError) {
+        console.error('Erreur lors de la suppression de la tâche planifiée (Supabase):', deleteError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const [tasks] = await pool.execute('SELECT title, assigned_to FROM planned_tasks WHERE id = ?', [req.params.id]);
+      if (tasks.length === 0) {
+        return res.status(404).json({ error: 'Tâche non trouvée' });
+      }
+      task = tasks[0];
+      await pool.execute('DELETE FROM planned_tasks WHERE id = ?', [req.params.id]);
+    }
+
     if (task?.assigned_to) {
       await createNotification(task.assigned_to, `La tâche "${task.title}" a été supprimée.`, 'dashboardTechnicien');
     }
@@ -2093,6 +2860,26 @@ app.delete('/api/planned-tasks/:id', authenticateToken, async (req, res) => {
 // Routes pour les déchets médicaux
 app.get('/api/medical-waste', authenticateToken, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('medical_waste')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des déchets médicaux (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const result = (data || []).map(w => ({
+        ...w,
+        photo_urls: w.photo_urls || []
+      }));
+
+      return res.json(result);
+    }
+
+    // Fallback MySQL
     const [waste] = await pool.execute(
       'SELECT * FROM medical_waste ORDER BY created_at DESC'
     );
@@ -2129,6 +2916,41 @@ app.post('/api/medical-waste', authenticateToken, async (req, res) => {
     const id = uuidv4();
     const trackingNumber = tracking_number || `WM-${Date.now()}`;
 
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('medical_waste')
+        .insert({
+          id,
+          waste_type,
+          category: category || null,
+          quantity,
+          unit,
+          collection_date,
+          collection_location,
+          producer_service: producer_service || null,
+          waste_code: waste_code || null,
+          tracking_number: trackingNumber,
+          status: 'collecté',
+          registered_by: req.user.id,
+          notes: notes || null,
+          photo_urls: photo_urls || []
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création du déchet médical (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const ids = await getSupervisorIds();
+      const creatorName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Un agent';
+      for (const uid of ids) {
+        await createNotification(uid, `Nouveau déchet médical enregistré par ${creatorName} (${waste_type}).`, 'qhseWaste');
+      }
+
+      return res.json({ id, message: 'Déchet médical enregistré' });
+    }
+
+    // Fallback MySQL
     await pool.execute(
       `INSERT INTO medical_waste (
         id, waste_type, category, quantity, unit, collection_date, collection_location,
@@ -2214,12 +3036,43 @@ app.put('/api/medical-waste/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Aucune mise à jour fournie' });
     }
 
-    values.push(id);
+    if (supabase) {
+      const updatePayload = {};
+      const fieldNames = [
+        'status',
+        'treatment_method',
+        'treatment_company',
+        'treatment_date',
+        'certificate_number',
+        'handled_by',
+        'notes'
+      ];
 
-    await pool.execute(
-      `UPDATE medical_waste SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
+      fieldNames.forEach((field) => {
+        if (typeof req.body[field] !== 'undefined') {
+          updatePayload[field] = req.body[field];
+        }
+      });
+
+      updatePayload.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('medical_waste')
+        .update(updatePayload)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour du déchet médical (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      values.push(id);
+
+      await pool.execute(
+        `UPDATE medical_waste SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
+    }
 
     res.json({ message: 'Déchet médical mis à jour' });
   } catch (error) {
@@ -2237,6 +3090,20 @@ app.delete('/api/medical-waste/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à supprimer des déchets médicaux.' });
     }
 
+    if (supabase) {
+      const { error } = await supabase
+        .from('medical_waste')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression du déchet médical (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Déchet médical supprimé' });
+    }
+
     await pool.execute('DELETE FROM medical_waste WHERE id = ?', [id]);
     res.json({ message: 'Déchet médical supprimé' });
   } catch (error) {
@@ -2248,6 +3115,20 @@ app.delete('/api/medical-waste/:id', authenticateToken, async (req, res) => {
 // Routes pour les formations
 app.get('/api/trainings', authenticateToken, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('trainings')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des formations (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json(data || []);
+    }
+
     const [trainings] = await pool.execute(
       'SELECT * FROM trainings ORDER BY created_at DESC'
     );
@@ -2284,6 +3165,43 @@ app.post('/api/trainings', authenticateToken, async (req, res) => {
     } = req.body;
     
     const id = uuidv4();
+
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('trainings')
+        .insert({
+          id,
+          title,
+          category,
+          description: description || null,
+          trainer: trainer || null,
+          training_type,
+          duration_hours: duration_hours || null,
+          location: location || null,
+          planned_date: planned_date || null,
+          status: 'planifiée',
+          max_participants: max_participants || null,
+          certificate_required: certificate_required || false,
+          validity_months: validity_months || null,
+          prestataire: prestataire || null,
+          prestataire_note: prestataire_note || null,
+          prestataire_evaluation: prestataire_evaluation || null,
+          created_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de la formation (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const ids = await getSupervisorIds();
+      const creatorName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Un agent';
+      for (const uid of ids) {
+        await createNotification(uid, `Nouvelle formation planifiée: ${title} par ${creatorName}.`, 'qhseTrainings');
+      }
+
+      return res.json({ id, message: 'Formation créée' });
+    }
 
     await pool.execute(
       `INSERT INTO trainings (
@@ -2347,36 +3265,73 @@ app.put('/api/trainings/:id', authenticateToken, async (req, res) => {
       prestataire_evaluation
     } = req.body;
 
-    const updates = [];
-    const values = [];
+    if (supabase) {
+      const updates = {};
 
-    if (title !== undefined) { updates.push('title = ?'); values.push(title); }
-    if (category !== undefined) { updates.push('category = ?'); values.push(category); }
-    if (description !== undefined) { updates.push('description = ?'); values.push(description); }
-    if (trainer !== undefined) { updates.push('trainer = ?'); values.push(trainer); }
-    if (training_type !== undefined) { updates.push('training_type = ?'); values.push(training_type); }
-    if (duration_hours !== undefined) { updates.push('duration_hours = ?'); values.push(duration_hours); }
-    if (location !== undefined) { updates.push('location = ?'); values.push(location); }
-    if (planned_date !== undefined) { updates.push('planned_date = ?'); values.push(planned_date); }
-    if (actual_date !== undefined) { updates.push('actual_date = ?'); values.push(actual_date); }
-    if (status !== undefined) { updates.push('status = ?'); values.push(status); }
-    if (max_participants !== undefined) { updates.push('max_participants = ?'); values.push(max_participants); }
-    if (certificate_required !== undefined) { updates.push('certificate_required = ?'); values.push(certificate_required); }
-    if (validity_months !== undefined) { updates.push('validity_months = ?'); values.push(validity_months); }
-    if (prestataire !== undefined) { updates.push('prestataire = ?'); values.push(prestataire || null); }
-    if (prestataire_note !== undefined) { updates.push('prestataire_note = ?'); values.push(prestataire_note || null); }
-    if (prestataire_evaluation !== undefined) { updates.push('prestataire_evaluation = ?'); values.push(prestataire_evaluation || null); }
+      if (title !== undefined) updates.title = title;
+      if (category !== undefined) updates.category = category;
+      if (description !== undefined) updates.description = description;
+      if (trainer !== undefined) updates.trainer = trainer;
+      if (training_type !== undefined) updates.training_type = training_type;
+      if (duration_hours !== undefined) updates.duration_hours = duration_hours;
+      if (location !== undefined) updates.location = location;
+      if (planned_date !== undefined) updates.planned_date = planned_date;
+      if (actual_date !== undefined) updates.actual_date = actual_date;
+      if (status !== undefined) updates.status = status;
+      if (max_participants !== undefined) updates.max_participants = max_participants;
+      if (certificate_required !== undefined) updates.certificate_required = certificate_required;
+      if (validity_months !== undefined) updates.validity_months = validity_months;
+      if (prestataire !== undefined) updates.prestataire = prestataire || null;
+      if (prestataire_note !== undefined) updates.prestataire_note = prestataire_note || null;
+      if (prestataire_evaluation !== undefined) updates.prestataire_evaluation = prestataire_evaluation || null;
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('trainings')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour de la formation (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const updates = [];
+      const values = [];
+
+      if (title !== undefined) { updates.push('title = ?'); values.push(title); }
+      if (category !== undefined) { updates.push('category = ?'); values.push(category); }
+      if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+      if (trainer !== undefined) { updates.push('trainer = ?'); values.push(trainer); }
+      if (training_type !== undefined) { updates.push('training_type = ?'); values.push(training_type); }
+      if (duration_hours !== undefined) { updates.push('duration_hours = ?'); values.push(duration_hours); }
+      if (location !== undefined) { updates.push('location = ?'); values.push(location); }
+      if (planned_date !== undefined) { updates.push('planned_date = ?'); values.push(planned_date); }
+      if (actual_date !== undefined) { updates.push('actual_date = ?'); values.push(actual_date); }
+      if (status !== undefined) { updates.push('status = ?'); values.push(status); }
+      if (max_participants !== undefined) { updates.push('max_participants = ?'); values.push(max_participants); }
+      if (certificate_required !== undefined) { updates.push('certificate_required = ?'); values.push(certificate_required); }
+      if (validity_months !== undefined) { updates.push('validity_months = ?'); values.push(validity_months); }
+      if (prestataire !== undefined) { updates.push('prestataire = ?'); values.push(prestataire || null); }
+      if (prestataire_note !== undefined) { updates.push('prestataire_note = ?'); values.push(prestataire_note || null); }
+      if (prestataire_evaluation !== undefined) { updates.push('prestataire_evaluation = ?'); values.push(prestataire_evaluation || null); }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+
+      values.push(id);
+
+      await pool.execute(
+        `UPDATE trainings SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
     }
-
-    values.push(id);
-
-    await pool.execute(
-      `UPDATE trainings SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
 
     res.json({ message: 'Formation mise à jour' });
   } catch (error) {
@@ -2394,6 +3349,20 @@ app.delete('/api/trainings/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à supprimer des formations.' });
     }
 
+    if (supabase) {
+      const { error } = await supabase
+        .from('trainings')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression de la formation (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Formation supprimée' });
+    }
+
     await pool.execute('DELETE FROM trainings WHERE id = ?', [id]);
     res.json({ message: 'Formation supprimée' });
   } catch (error) {
@@ -2407,6 +3376,78 @@ app.delete('/api/trainings/:id', authenticateToken, async (req, res) => {
 // ===============================
 app.get('/api/training-participations', authenticateToken, async (_req, res) => {
   try {
+    if (supabase) {
+      const { data: participations, error } = await supabase
+        .from('training_participations')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des participations (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const tpList = participations || [];
+
+      const trainingIds = Array.from(new Set(tpList.map(tp => tp.training_id).filter(Boolean)));
+      const participantIds = Array.from(new Set(tpList.map(tp => tp.participant_id).filter(Boolean)));
+
+      let trainingsById = {};
+      if (trainingIds.length > 0) {
+        const { data: trainings, error: trainingsError } = await supabase
+          .from('trainings')
+          .select('id, title, category')
+          .in('id', trainingIds);
+
+        if (!trainingsError && trainings) {
+          trainingsById = trainings.reduce((acc, t) => {
+            acc[t.id] = t;
+            return acc;
+          }, {});
+        }
+      }
+
+      let profilesById = {};
+      if (participantIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, role')
+          .in('id', participantIds);
+
+        if (!profilesError && profiles) {
+          profilesById = profiles.reduce((acc, p) => {
+            acc[p.id] = p;
+            return acc;
+          }, {});
+        }
+      }
+
+      const result = tpList.map(item => {
+        const training = item.training_id ? trainingsById[item.training_id] : null;
+        const participant = item.participant_id ? profilesById[item.participant_id] : null;
+        const participantName = participant
+          ? `${participant.first_name || ''} ${participant.last_name || ''}`.trim()
+          : item.participant_name || null;
+
+        return {
+          ...item,
+          training_title: training ? training.title : null,
+          training_category: training ? training.category : null,
+          participant_first_name: participant ? participant.first_name : null,
+          participant_last_name: participant ? participant.last_name : null,
+          participant_role: participant ? participant.role : null,
+          participant_display_name: participantName,
+          attendance_date: item.attendance_date,
+          certificate_issued_date: item.certificate_issued_date,
+          certificate_expiry_date: item.certificate_expiry_date,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        };
+      });
+
+      return res.json(result);
+    }
+
     const [participations] = await pool.execute(
       `SELECT tp.*, 
         t.title as training_title,
@@ -2461,6 +3502,33 @@ app.post('/api/training-participations', authenticateToken, async (req, res) => 
 
     const id = uuidv4();
 
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('training_participations')
+        .insert({
+          id,
+          training_id,
+          participant_id: participant_id || null,
+          participant_name: participant_name || null,
+          registration_status: registration_status || 'inscrit',
+          attendance_date: attendance_date || null,
+          score: score || null,
+          passed: passed ?? false,
+          certificate_number: certificate_number || null,
+          certificate_issued_date: certificate_issued_date || null,
+          certificate_expiry_date: certificate_expiry_date || null,
+          comments: comments || null,
+          registered_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de la participation (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ id, message: 'Participation ajoutée' });
+    }
+
     await pool.execute(
       `INSERT INTO training_participations (
         id, training_id, participant_id, participant_name, registration_status, attendance_date,
@@ -2497,8 +3565,6 @@ app.post('/api/training-participations', authenticateToken, async (req, res) => 
 app.put('/api/training-participations/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = [];
-    const values = [];
     const allowedFields = [
       'participant_id',
       'participant_name',
@@ -2512,26 +3578,59 @@ app.put('/api/training-participations/:id', authenticateToken, async (req, res) 
       'comments'
     ];
 
-    allowedFields.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        updates.push(`${field} = ?`);
-        if (field === 'passed') {
-          values.push(!!req.body[field]);
-        } else {
-          values.push(req.body[field]);
+    if (supabase) {
+      const updates = {};
+
+      allowedFields.forEach((field) => {
+        if (req.body[field] !== undefined) {
+          if (field === 'passed') {
+            updates.passed = !!req.body[field];
+          } else {
+            updates[field] = req.body[field];
+          }
         }
+      });
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
       }
-    });
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('training_participations')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour de la participation (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const updates = [];
+      const values = [];
+
+      allowedFields.forEach((field) => {
+        if (req.body[field] !== undefined) {
+          updates.push(`${field} = ?`);
+          if (field === 'passed') {
+            values.push(!!req.body[field]);
+          } else {
+            values.push(req.body[field]);
+          }
+        }
+      });
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+
+      values.push(id);
+      await pool.execute(
+        `UPDATE training_participations SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
     }
-
-    values.push(id);
-    await pool.execute(
-      `UPDATE training_participations SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
 
     res.json({ message: 'Participation mise à jour' });
   } catch (error) {
@@ -2543,6 +3642,20 @@ app.put('/api/training-participations/:id', authenticateToken, async (req, res) 
 app.delete('/api/training-participations/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { error } = await supabase
+        .from('training_participations')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression de la participation (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Participation supprimée' });
+    }
+
     await pool.execute('DELETE FROM training_participations WHERE id = ?', [id]);
     res.json({ message: 'Participation supprimée' });
   } catch (error) {
@@ -2553,6 +3666,53 @@ app.delete('/api/training-participations/:id', authenticateToken, async (req, re
 
 app.get('/api/competencies', authenticateToken, async (_req, res) => {
   try {
+    if (supabase) {
+      const { data: competencies, error } = await supabase
+        .from('competencies')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des compétences (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const list = competencies || [];
+      const employeeIds = Array.from(new Set(list.map(c => c.employee_id).filter(Boolean)));
+
+      let profilesById = {};
+      if (employeeIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, role')
+          .in('id', employeeIds);
+
+        if (!profilesError && profiles) {
+          profilesById = profiles.reduce((acc, p) => {
+            acc[p.id] = p;
+            return acc;
+          }, {});
+        }
+      }
+
+      const result = list.map(item => {
+        const emp = item.employee_id ? profilesById[item.employee_id] : null;
+        return {
+          ...item,
+          employee_first_name: emp ? emp.first_name : null,
+          employee_last_name: emp ? emp.last_name : null,
+          employee_role: emp ? emp.role : null,
+          issued_date: item.issued_date,
+          expiry_date: item.expiry_date,
+          verification_date: item.verification_date,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        };
+      });
+
+      return res.json(result);
+    }
+
     const [competencies] = await pool.execute(
       `SELECT c.*, 
         p.first_name as employee_first_name,
@@ -2597,6 +3757,33 @@ app.post('/api/competencies', authenticateToken, async (req, res) => {
 
     const id = uuidv4();
 
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('competencies')
+        .insert({
+          id,
+          employee_id,
+          skill_name,
+          skill_category: skill_category || null,
+          level: level || 'débutant',
+          certification_number: certification_number || null,
+          issued_date: issued_date || null,
+          expiry_date: expiry_date || null,
+          issuing_authority: issuing_authority || null,
+          verified: !!verified,
+          verified_by: verified ? req.user.id : null,
+          verification_date: verified ? new Date().toISOString() : null,
+          notes: notes || null
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de la compétence (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ id, message: 'Compétence enregistrée' });
+    }
+
     await pool.execute(
       `INSERT INTO competencies (
         id, employee_id, skill_name, skill_category, level,
@@ -2633,8 +3820,6 @@ app.post('/api/competencies', authenticateToken, async (req, res) => {
 app.put('/api/competencies/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = [];
-    const values = [];
     const allowedFields = [
       'skill_name',
       'skill_category',
@@ -2647,31 +3832,66 @@ app.put('/api/competencies/:id', authenticateToken, async (req, res) => {
       'notes'
     ];
 
-    allowedFields.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        if (field === 'verified') {
-          updates.push('verified = ?');
-          values.push(!!req.body[field]);
-          updates.push('verified_by = ?');
-          values.push(req.body[field] ? req.user.id : null);
-          updates.push('verification_date = ?');
-          values.push(req.body[field] ? new Date() : null);
-        } else {
-          updates.push(`${field} = ?`);
-          values.push(req.body[field]);
+    if (supabase) {
+      const updates = {};
+
+      allowedFields.forEach((field) => {
+        if (req.body[field] !== undefined) {
+          if (field === 'verified') {
+            updates.verified = !!req.body[field];
+            updates.verified_by = req.body[field] ? req.user.id : null;
+            updates.verification_date = req.body[field] ? new Date().toISOString() : null;
+          } else {
+            updates[field] = req.body[field];
+          }
         }
+      });
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
       }
-    });
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('competencies')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour de la compétence (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const updates = [];
+      const values = [];
+
+      allowedFields.forEach((field) => {
+        if (req.body[field] !== undefined) {
+          if (field === 'verified') {
+            updates.push('verified = ?');
+            values.push(!!req.body[field]);
+            updates.push('verified_by = ?');
+            values.push(req.body[field] ? req.user.id : null);
+            updates.push('verification_date = ?');
+            values.push(req.body[field] ? new Date() : null);
+          } else {
+            updates.push(`${field} = ?`);
+            values.push(req.body[field]);
+          }
+        }
+      });
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+
+      values.push(id);
+      await pool.execute(
+        `UPDATE competencies SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
     }
-
-    values.push(id);
-    await pool.execute(
-      `UPDATE competencies SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
 
     res.json({ message: 'Compétence mise à jour' });
   } catch (error) {
@@ -2683,6 +3903,20 @@ app.put('/api/competencies/:id', authenticateToken, async (req, res) => {
 app.delete('/api/competencies/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { error } = await supabase
+        .from('competencies')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression de la compétence (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Compétence supprimée' });
+    }
+
     await pool.execute('DELETE FROM competencies WHERE id = ?', [id]);
     res.json({ message: 'Compétence supprimée' });
   } catch (error) {
@@ -2691,12 +3925,25 @@ app.delete('/api/competencies/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Routes pour les audits
+// Routes pour les audits (Supabase)
 app.get('/api/audits', authenticateToken, async (req, res) => {
   try {
-    const [audits] = await pool.execute(
-      'SELECT * FROM audits ORDER BY created_at DESC'
-    );
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les audits.' });
+    }
+
+    const { data, error } = await supabase
+      .from('audits')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des audits:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const audits = data || [];
+
     res.json(audits.map(audit => ({
       ...audit,
       findings: safeJsonParse(audit.findings, null),
@@ -2704,19 +3951,17 @@ app.get('/api/audits', authenticateToken, async (req, res) => {
       planned_date: audit.planned_date || null,
     })));
   } catch (error) {
-    console.error('Erreur lors de la récupération des audits:', error.message || error);
-    console.error('Code d\'erreur MySQL:', error.code);
-    console.error('Stack trace:', error.stack);
-    // Si la table n'existe pas, retourner un message plus explicite
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table audits non trouvée. Veuillez exécuter le script SQL: database/create_audits_table.sql' });
-    }
-    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+    console.error('Erreur lors de la récupération des audits:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
 app.post('/api/audits', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les audits.' });
+    }
+
     const {
       title,
       audit_type,
@@ -2732,32 +3977,50 @@ app.post('/api/audits', authenticateToken, async (req, res) => {
     
     const id = uuidv4();
 
-    await pool.execute(
-      `INSERT INTO audits (
-        id, title, audit_type, scope, planned_date, auditor_id,
-        audited_department, status, non_conformities_count, conformities_count,
-        opportunities_count, recurrence_type, recurrence_interval, reminder_days_before,
-        auto_generate_report, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'planifié', 0, 0, 0, ?, ?, ?, ?, ?)`,
-      [
+    const payload = {
         id,
         title,
         audit_type,
         scope,
         planned_date,
-        auditor_id || null,
-        audited_department || null,
-        recurrence_type || 'aucune',
-        recurrence_interval || null,
-        reminder_days_before || 7,
-        auto_generate_report || false,
-        req.user.id
-      ]
-    );
+      auditor_id: auditor_id || null,
+      audited_department: audited_department || null,
+      status: 'planifié',
+      non_conformities_count: 0,
+      conformities_count: 0,
+      opportunities_count: 0,
+      recurrence_type: recurrence_type || 'aucune',
+      recurrence_interval: recurrence_interval || null,
+      reminder_days_before: reminder_days_before || 7,
+      auto_generate_report: !!auto_generate_report,
+      created_by: req.user.id
+    };
+
+    const { error: insertError } = await supabase
+      .from('audits')
+      .insert([payload]);
+
+    if (insertError) {
+      console.error('Erreur Supabase lors de la création de l\'audit:', insertError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    let creatorName = 'Un agent';
+    try {
+      const { data: creator, error: creatorError } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', req.user.id)
+        .maybeSingle();
+
+      if (!creatorError && creator) {
+        creatorName = `${creator.first_name || ''} ${creator.last_name || ''}`.trim() || 'Un agent';
+      }
+    } catch (e) {
+      console.warn('Impossible de récupérer le créateur de l\'audit depuis Supabase:', e);
+    }
 
     const ids = await getSupervisorIds();
-    const [creator] = await pool.execute('SELECT first_name, last_name FROM profiles WHERE id = ?', [req.user.id]);
-    const creatorName = creator[0] ? `${creator[0].first_name || ''} ${creator[0].last_name || ''}`.trim() || 'Un agent' : 'Un agent';
     for (const uid of ids) {
       await createNotification(uid, `Nouvel audit planifié: ${title} par ${creatorName}.`, 'qhseAudits');
     }
@@ -2774,6 +4037,10 @@ app.post('/api/audits', authenticateToken, async (req, res) => {
 
 app.put('/api/audits/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les audits.' });
+    }
+
     const { id } = req.params;
     const {
       title,
@@ -2797,39 +4064,41 @@ app.put('/api/audits/:id', authenticateToken, async (req, res) => {
       report_generation_date
     } = req.body;
 
-    const updates = [];
-    const values = [];
+    const updates = {};
 
-    if (title !== undefined) { updates.push('title = ?'); values.push(title); }
-    if (audit_type !== undefined) { updates.push('audit_type = ?'); values.push(audit_type); }
-    if (scope !== undefined) { updates.push('scope = ?'); values.push(scope); }
-    if (planned_date !== undefined) { updates.push('planned_date = ?'); values.push(planned_date); }
-    if (actual_date !== undefined) { updates.push('actual_date = ?'); values.push(actual_date); }
-    if (auditor_id !== undefined) { updates.push('auditor_id = ?'); values.push(auditor_id); }
-    if (audited_department !== undefined) { updates.push('audited_department = ?'); values.push(audited_department); }
-    if (status !== undefined) { updates.push('status = ?'); values.push(status); }
-    if (findings !== undefined) { updates.push('findings = ?'); values.push(typeof findings === 'string' ? findings : JSON.stringify(findings)); }
-    if (non_conformities_count !== undefined) { updates.push('non_conformities_count = ?'); values.push(non_conformities_count); }
-    if (conformities_count !== undefined) { updates.push('conformities_count = ?'); values.push(conformities_count); }
-    if (opportunities_count !== undefined) { updates.push('opportunities_count = ?'); values.push(opportunities_count); }
-    if (report_path !== undefined) { updates.push('report_path = ?'); values.push(report_path); }
-    if (recurrence_type !== undefined) { updates.push('recurrence_type = ?'); values.push(recurrence_type); }
-    if (recurrence_interval !== undefined) { updates.push('recurrence_interval = ?'); values.push(recurrence_interval); }
-    if (next_audit_date !== undefined) { updates.push('next_audit_date = ?'); values.push(next_audit_date); }
-    if (reminder_days_before !== undefined) { updates.push('reminder_days_before = ?'); values.push(reminder_days_before); }
-    if (auto_generate_report !== undefined) { updates.push('auto_generate_report = ?'); values.push(auto_generate_report); }
-    if (report_generation_date !== undefined) { updates.push('report_generation_date = ?'); values.push(report_generation_date); }
+    if (title !== undefined) updates.title = title;
+    if (audit_type !== undefined) updates.audit_type = audit_type;
+    if (scope !== undefined) updates.scope = scope;
+    if (planned_date !== undefined) updates.planned_date = planned_date;
+    if (actual_date !== undefined) updates.actual_date = actual_date;
+    if (auditor_id !== undefined) updates.auditor_id = auditor_id;
+    if (audited_department !== undefined) updates.audited_department = audited_department;
+    if (status !== undefined) updates.status = status;
+    if (findings !== undefined) updates.findings = typeof findings === 'string' ? findings : JSON.stringify(findings);
+    if (non_conformities_count !== undefined) updates.non_conformities_count = non_conformities_count;
+    if (conformities_count !== undefined) updates.conformities_count = conformities_count;
+    if (opportunities_count !== undefined) updates.opportunities_count = opportunities_count;
+    if (report_path !== undefined) updates.report_path = report_path;
+    if (recurrence_type !== undefined) updates.recurrence_type = recurrence_type;
+    if (recurrence_interval !== undefined) updates.recurrence_interval = recurrence_interval;
+    if (next_audit_date !== undefined) updates.next_audit_date = next_audit_date;
+    if (reminder_days_before !== undefined) updates.reminder_days_before = reminder_days_before;
+    if (auto_generate_report !== undefined) updates.auto_generate_report = auto_generate_report;
+    if (report_generation_date !== undefined) updates.report_generation_date = report_generation_date;
 
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'Aucune mise à jour fournie' });
     }
 
-    values.push(id);
+    const { error: updateError } = await supabase
+      .from('audits')
+      .update(updates)
+      .eq('id', id);
 
-    await pool.execute(
-      `UPDATE audits SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour de l\'audit:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     res.json({ message: 'Audit mis à jour' });
   } catch (error) {
@@ -2840,9 +4109,21 @@ app.put('/api/audits/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/audits/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les audits.' });
+    }
+
     const { id } = req.params;
     
-    await pool.execute('DELETE FROM audits WHERE id = ?', [id]);
+    const { error } = await supabase
+      .from('audits')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la suppression de l\'audit:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
     
     res.json({ message: 'Audit supprimé' });
   } catch (error) {
@@ -2851,14 +4132,27 @@ app.delete('/api/audits/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Routes pour les checklists d'audit
+// Routes pour les checklists d'audit (Supabase)
 app.get('/api/audits/:auditId/checklists', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les checklists d\'audit.' });
+    }
+
     const { auditId } = req.params;
-    const [checklists] = await pool.execute(
-      'SELECT * FROM audit_checklists WHERE audit_id = ? ORDER BY id ASC',
-      [auditId]
-    );
+    const { data, error } = await supabase
+      .from('audit_checklists')
+      .select('*')
+      .eq('audit_id', auditId)
+      .order('id', { ascending: true });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des checklists:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const checklists = data || [];
+
     res.json(checklists.map((item) => ({
       ...item,
       photo_urls: safeJsonParse(item.photo_urls, []),
@@ -2868,76 +4162,88 @@ app.get('/api/audits/:auditId/checklists', authenticateToken, async (req, res) =
     })));
   } catch (error) {
     console.error('Erreur lors de la récupération des checklists:', error);
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table audit_checklists non trouvée. Veuillez exécuter le script SQL: database/create_audit_checklists_table.sql' });
-    }
-    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
 app.post('/api/audits/:auditId/checklists', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les checklists d\'audit.' });
+    }
+
     const { auditId } = req.params;
     const { question, requirement, compliance_status, observation, photo_urls } = req.body;
     
     const id = uuidv4();
     
-    await pool.execute(
-      `INSERT INTO audit_checklists (
-        id, audit_id, question, requirement, compliance_status, observation, photo_urls
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        auditId,
+    const payload = {
+      id,
+      audit_id: auditId,
         question,
-        requirement || null,
-        compliance_status || 'non_évalué',
-        observation || null,
-        JSON.stringify(photo_urls || [])
-      ]
-    );
-    
-    const [newChecklist] = await pool.execute('SELECT * FROM audit_checklists WHERE id = ?', [id]);
-    res.json(newChecklist[0]);
+      requirement: requirement || null,
+      compliance_status: compliance_status || 'non_évalué',
+      observation: observation || null,
+      photo_urls: photo_urls || []
+    };
+
+    const { data, error } = await supabase
+      .from('audit_checklists')
+      .insert([payload])
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Erreur Supabase lors de la création de la checklist:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    res.json(data);
   } catch (error) {
     console.error('Erreur lors de la création de la checklist:', error);
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table audit_checklists non trouvée. Veuillez exécuter le script SQL: database/create_audit_checklists_table.sql' });
-    }
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
 app.put('/api/audits/checklists/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les checklists d\'audit.' });
+    }
+
     const { id } = req.params;
     const { question, requirement, compliance_status, observation, photo_urls, checked_by } = req.body;
     
-    const updates = [];
-    const values = [];
-    
-    if (question !== undefined) { updates.push('question = ?'); values.push(question); }
-    if (requirement !== undefined) { updates.push('requirement = ?'); values.push(requirement); }
-    if (compliance_status !== undefined) { updates.push('compliance_status = ?'); values.push(compliance_status); }
-    if (observation !== undefined) { updates.push('observation = ?'); values.push(observation); }
-    if (photo_urls !== undefined) { updates.push('photo_urls = ?'); values.push(JSON.stringify(photo_urls)); }
+    const updates = {};
+
+    if (question !== undefined) updates.question = question;
+    if (requirement !== undefined) updates.requirement = requirement;
+    if (compliance_status !== undefined) updates.compliance_status = compliance_status;
+    if (observation !== undefined) updates.observation = observation;
+    if (photo_urls !== undefined) updates.photo_urls = photo_urls;
     if (checked_by !== undefined) { 
-      updates.push('checked_by = ?'); 
-      values.push(checked_by);
+      updates.checked_by = checked_by;
       if (checked_by) {
-        updates.push('checked_at = CURRENT_TIMESTAMP');
+        updates.checked_at = new Date().toISOString();
+      } else {
+        updates.checked_at = null;
       }
     }
+    updates.updated_at = new Date().toISOString();
     
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 1 && updates.updated_at) {
       return res.status(400).json({ error: 'Aucune mise à jour fournie' });
     }
     
-    values.push(id);
-    await pool.execute(
-      `UPDATE audit_checklists SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
+    const { error: updateError } = await supabase
+      .from('audit_checklists')
+      .update(updates)
+      .eq('id', id);
+
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour de la checklist:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
     
     res.json({ message: 'Checklist mise à jour' });
   } catch (error) {
@@ -2948,8 +4254,22 @@ app.put('/api/audits/checklists/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/audits/checklists/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les checklists d\'audit.' });
+    }
+
     const { id } = req.params;
-    await pool.execute('DELETE FROM audit_checklists WHERE id = ?', [id]);
+
+    const { error } = await supabase
+      .from('audit_checklists')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la suppression de la checklist:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({ message: 'Checklist supprimée' });
   } catch (error) {
     console.error('Erreur lors de la suppression de la checklist:', error);
@@ -2957,139 +4277,185 @@ app.delete('/api/audits/checklists/:id', authenticateToken, async (req, res) => 
   }
 });
 
-// Routes pour les plans d'action d'audit
+// Routes pour les plans d'action d'audit (Supabase)
 app.get('/api/audits/:auditId/action-plans', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les plans d\'action d\'audit.' });
+    }
+
     const { auditId } = req.params;
-    const [actionPlans] = await pool.execute(
-      `SELECT ap.*, 
-        p1.first_name as assigned_to_first_name, p1.last_name as assigned_to_last_name,
-        p2.first_name as verified_by_first_name, p2.last_name as verified_by_last_name
-      FROM audit_action_plans ap
-      LEFT JOIN profiles p1 ON ap.assigned_to = p1.id
-      LEFT JOIN profiles p2 ON ap.verified_by = p2.id
-      WHERE ap.audit_id = ? ORDER BY ap.created_at DESC`,
-      [auditId]
-    );
-    res.json(actionPlans.map((plan) => ({
+
+    const { data: plans, error } = await supabase
+      .from('audit_action_plans')
+      .select('*')
+      .eq('audit_id', auditId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des plans d\'action:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const rows = plans || [];
+
+    const assignedIds = Array.from(new Set(rows.map(p => p.assigned_to).filter(Boolean)));
+    const verifiedIds = Array.from(new Set(rows.map(p => p.verified_by).filter(Boolean)));
+    const allProfileIds = Array.from(new Set([...assignedIds, ...verifiedIds]));
+
+    let profilesById = {};
+    if (allProfileIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name')
+        .in('id', allProfileIds);
+
+      if (!profilesError && profiles) {
+        profilesById = profiles.reduce((acc, p) => {
+          acc[p.id] = p;
+          return acc;
+        }, {});
+      }
+    }
+
+    res.json(rows.map(plan => {
+      const assignedProfile = plan.assigned_to ? profilesById[plan.assigned_to] : null;
+      const verifiedProfile = plan.verified_by ? profilesById[plan.verified_by] : null;
+
+      return {
       ...plan,
-      assigned_to_name: plan.assigned_to_first_name && plan.assigned_to_last_name 
-        ? `${plan.assigned_to_first_name} ${plan.assigned_to_last_name}` 
+        assigned_to_name: assignedProfile
+          ? `${assignedProfile.first_name || ''} ${assignedProfile.last_name || ''}`.trim() || null
         : null,
-      verified_by_name: plan.verified_by_first_name && plan.verified_by_last_name
-        ? `${plan.verified_by_first_name} ${plan.verified_by_last_name}`
+        verified_by_name: verifiedProfile
+          ? `${verifiedProfile.first_name || ''} ${verifiedProfile.last_name || ''}`.trim() || null
         : null,
       due_date: plan.due_date || null,
       completion_date: plan.completion_date || null,
       verification_date: plan.verification_date || null,
       created_at: plan.created_at || null,
       updated_at: plan.updated_at || null,
-    })));
+      };
+    }));
   } catch (error) {
     console.error('Erreur lors de la récupération des plans d\'action:', error);
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table audit_action_plans non trouvée. Veuillez exécuter le script SQL: database/create_audit_action_plans_table.sql' });
-    }
-    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
 app.post('/api/audits/:auditId/action-plans', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les plans d\'action d\'audit.' });
+    }
+
     const { auditId } = req.params;
     const { title, description, action_type, priority, assigned_to, due_date, finding_id, status } = req.body;
     
     const id = uuidv4();
     
-    await pool.execute(
-      `INSERT INTO audit_action_plans (
-        id, audit_id, finding_id, title, description, action_type, priority,
-        assigned_to, due_date, status, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        auditId,
-        finding_id || null,
+    const payload = {
+      id,
+      audit_id: auditId,
+      finding_id: finding_id || null,
         title,
         description,
         action_type,
-        priority || 'moyenne',
-        assigned_to || null,
-        due_date || null,
-        status || 'planifié',
-        req.user.id
-      ]
-    );
-    
-    // Récupérer le plan d'action créé avec les noms
-    const [newPlan] = await pool.execute(
-      `SELECT ap.*, 
-        p1.first_name as assigned_to_first_name, p1.last_name as assigned_to_last_name
-      FROM audit_action_plans ap
-      LEFT JOIN profiles p1 ON ap.assigned_to = p1.id
-      WHERE ap.id = ?`,
-      [id]
-    );
-    
-    const plan = newPlan[0];
+      priority: priority || 'moyenne',
+      assigned_to: assigned_to || null,
+      due_date: due_date || null,
+      status: status || 'planifié',
+      created_by: req.user.id
+    };
+
+    const { data, error } = await supabase
+      .from('audit_action_plans')
+      .insert([payload])
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Erreur Supabase lors de la création du plan d\'action:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    let assigned_to_name = null;
+    if (data.assigned_to) {
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', data.assigned_to)
+          .maybeSingle();
+
+        if (!profileError && profile) {
+          assigned_to_name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || null;
+        }
+      } catch (e) {
+        console.warn('Impossible de récupérer le profil assigné pour le plan d\'action:', e);
+      }
+    }
+
     res.json({
-      ...plan,
-      assigned_to_name: plan.assigned_to_first_name && plan.assigned_to_last_name 
-        ? `${plan.assigned_to_first_name} ${plan.assigned_to_last_name}` 
-        : null,
-      due_date: plan.due_date || null,
-      created_at: plan.created_at || null,
-      updated_at: plan.updated_at || null,
+      ...data,
+      assigned_to_name,
+      due_date: data.due_date || null,
+      created_at: data.created_at || null,
+      updated_at: data.updated_at || null,
     });
   } catch (error) {
     console.error('Erreur lors de la création du plan d\'action:', error);
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table audit_action_plans non trouvée. Veuillez exécuter le script SQL: database/create_audit_action_plans_table.sql' });
-    }
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
 app.put('/api/audits/action-plans/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les plans d\'action d\'audit.' });
+    }
+
     const { id } = req.params;
     const { title, description, action_type, priority, assigned_to, due_date, status, completion_date, verification_date, verified_by, notes } = req.body;
     
-    const updates = [];
-    const values = [];
-    
-    if (title !== undefined) { updates.push('title = ?'); values.push(title); }
-    if (description !== undefined) { updates.push('description = ?'); values.push(description); }
-    if (action_type !== undefined) { updates.push('action_type = ?'); values.push(action_type); }
-    if (priority !== undefined) { updates.push('priority = ?'); values.push(priority); }
-    if (assigned_to !== undefined) { updates.push('assigned_to = ?'); values.push(assigned_to); }
-    if (due_date !== undefined) { updates.push('due_date = ?'); values.push(due_date); }
+    const updates = {};
+
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description;
+    if (action_type !== undefined) updates.action_type = action_type;
+    if (priority !== undefined) updates.priority = priority;
+    if (assigned_to !== undefined) updates.assigned_to = assigned_to;
+    if (due_date !== undefined) updates.due_date = due_date;
     if (status !== undefined) { 
-      updates.push('status = ?'); 
-      values.push(status);
+      updates.status = status;
       if (status === 'terminé' && !completion_date) {
-        updates.push('completion_date = CURRENT_DATE');
+        updates.completion_date = new Date().toISOString().slice(0, 10);
       }
       if (status === 'verifié' && !verification_date) {
-        updates.push('verification_date = CURRENT_DATE');
-        updates.push('verified_by = ?');
-        values.push(req.user.id);
+        updates.verification_date = new Date().toISOString().slice(0, 10);
+        updates.verified_by = req.user.id;
       }
     }
-    if (completion_date !== undefined) { updates.push('completion_date = ?'); values.push(completion_date); }
-    if (verification_date !== undefined) { updates.push('verification_date = ?'); values.push(verification_date); }
-    if (verified_by !== undefined) { updates.push('verified_by = ?'); values.push(verified_by); }
-    if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
-    
-    if (updates.length === 0) {
+    if (completion_date !== undefined) updates.completion_date = completion_date;
+    if (verification_date !== undefined) updates.verification_date = verification_date;
+    if (verified_by !== undefined) updates.verified_by = verified_by;
+    if (notes !== undefined) updates.notes = notes;
+
+    updates.updated_at = new Date().toISOString();
+
+    if (Object.keys(updates).length === 1 && updates.updated_at) {
       return res.status(400).json({ error: 'Aucune mise à jour fournie' });
     }
     
-    values.push(id);
-    await pool.execute(
-      `UPDATE audit_action_plans SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
+    const { error: updateError } = await supabase
+      .from('audit_action_plans')
+      .update(updates)
+      .eq('id', id);
+
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour du plan d\'action:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
     
     res.json({ message: 'Plan d\'action mis à jour' });
   } catch (error) {
@@ -3100,8 +4466,22 @@ app.put('/api/audits/action-plans/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/audits/action-plans/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les plans d\'action d\'audit.' });
+    }
+
     const { id } = req.params;
-    await pool.execute('DELETE FROM audit_action_plans WHERE id = ?', [id]);
+
+    const { error } = await supabase
+      .from('audit_action_plans')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Erreur Supabase lors de la suppression du plan d\'action:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
     res.json({ message: 'Plan d\'action supprimé' });
   } catch (error) {
     console.error('Erreur lors de la suppression du plan d\'action:', error);
@@ -3116,6 +4496,57 @@ app.delete('/api/audits/action-plans/:id', authenticateToken, async (req, res) =
 // Récupérer tous les travaux
 app.get('/api/works', authenticateToken, async (req, res) => {
   try {
+    if (supabase) {
+      const { data: works, error } = await supabase
+        .from('works')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des travaux (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const list = works || [];
+      const assignedIds = Array.from(new Set(list.map(w => w.assigned_to).filter(Boolean)));
+
+      let profilesById = {};
+      if (assignedIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name')
+          .in('id', assignedIds);
+
+        if (!profilesError && profiles) {
+          profilesById = profiles.reduce((acc, p) => {
+            acc[p.id] = p;
+            return acc;
+          }, {});
+        }
+      }
+
+      const result = list.map(work => {
+        const assignedProfile = work.assigned_to ? profilesById[work.assigned_to] : null;
+        const assignedName = assignedProfile
+          ? `${assignedProfile.first_name || ''} ${assignedProfile.last_name || ''}`.trim() || null
+          : work.assigned_to_name || null;
+
+        return {
+          ...work,
+          assigned_to_name: assignedName,
+          photo_urls: work.photo_urls || [],
+          planned_start_date: work.planned_start_date || null,
+          planned_end_date: work.planned_end_date || null,
+          actual_start_date: work.actual_start_date || null,
+          actual_end_date: work.actual_end_date || null,
+          created_at: work.created_at || null,
+          updated_at: work.updated_at || null,
+        };
+      });
+
+      return res.json(result);
+    }
+
     const [works] = await pool.execute(
       `SELECT w.*, 
         p1.first_name as assigned_to_first_name, p1.last_name as assigned_to_last_name
@@ -3158,6 +4589,74 @@ app.post('/api/works', authenticateToken, async (req, res) => {
     
     // Récupérer le nom de l'utilisateur assigné si fourni
     let assigned_to_name = null;
+
+    if (supabase) {
+      if (assigned_to) {
+        const { data: users, error: userError } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', assigned_to)
+          .limit(1);
+
+        if (!userError && users && users.length > 0 && (users[0].first_name || users[0].last_name)) {
+          assigned_to_name = `${users[0].first_name || ''} ${users[0].last_name || ''}`.trim() || null;
+        }
+      }
+
+      const { error: insertError } = await supabase
+        .from('works')
+        .insert({
+          id,
+          title,
+          description,
+          work_type: work_type || 'maintenance',
+          location: location || null,
+          priority: priority || 'moyenne',
+          status: status || 'planifié',
+          assigned_to: assigned_to || null,
+          assigned_to_name,
+          planned_start_date: planned_start_date || null,
+          planned_end_date: planned_end_date || null,
+          estimated_cost: estimated_cost || null,
+          supplier_name: supplier_name || null,
+          supplier_contact: supplier_contact || null,
+          notes: notes || null,
+          created_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création du travail (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const ids = await getSupervisorIds();
+      const creatorName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Un agent';
+      for (const uid of ids) {
+        await createNotification(uid, `Nouveau travail planifié: ${title} par ${creatorName}.`, 'qhseWorks');
+      }
+      if (assigned_to) {
+        await createNotification(assigned_to, `Nouveau travail assigné: ${title}.`, 'qhseWorks');
+      }
+
+      const { data: newWork, error: fetchError } = await supabase
+        .from('works')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError || !newWork) {
+        console.warn('Travail créé mais impossible de le relire depuis Supabase:', fetchError);
+        return res.json({ id, message: 'Travail créé' });
+      }
+
+      return res.json({
+        ...newWork,
+        assigned_to_name: newWork.assigned_to_name || assigned_to_name,
+        photo_urls: newWork.photo_urls || [],
+      });
+    }
+    
+    // Fallback MySQL
     if (assigned_to) {
       const [users] = await pool.execute(
         'SELECT first_name, last_name FROM profiles WHERE id = ?',
@@ -3232,65 +4731,124 @@ app.put('/api/works/:id', authenticateToken, async (req, res) => {
       estimated_cost, actual_cost, supplier_name, supplier_contact, notes
     } = req.body;
     
-    const updates = [];
-    const values = [];
-    
-    if (title !== undefined) { updates.push('title = ?'); values.push(title); }
-    if (description !== undefined) { updates.push('description = ?'); values.push(description); }
-    if (work_type !== undefined) { updates.push('work_type = ?'); values.push(work_type); }
-    if (location !== undefined) { updates.push('location = ?'); values.push(location); }
-    if (priority !== undefined) { updates.push('priority = ?'); values.push(priority); }
-    if (status !== undefined) { 
-      updates.push('status = ?'); 
-      values.push(status);
-      // Si le statut passe à "en_cours" et actual_start_date n'est pas défini, le définir
-      if (status === 'en_cours' && !actual_start_date) {
-        updates.push('actual_start_date = CURRENT_DATE');
+    if (supabase) {
+      const updates = {};
+
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description;
+      if (work_type !== undefined) updates.work_type = work_type;
+      if (location !== undefined) updates.location = location;
+      if (priority !== undefined) updates.priority = priority;
+      if (status !== undefined) {
+        updates.status = status;
+        if (status === 'en_cours' && !actual_start_date) {
+          updates.actual_start_date = new Date().toISOString().slice(0, 10);
+        }
+        if (status === 'terminé' && !actual_end_date) {
+          updates.actual_end_date = new Date().toISOString().slice(0, 10);
+        }
       }
-      // Si le statut passe à "terminé" et actual_end_date n'est pas défini, le définir
-      if (status === 'terminé' && !actual_end_date) {
-        updates.push('actual_end_date = CURRENT_DATE');
+      if (assigned_to !== undefined) {
+        updates.assigned_to = assigned_to || null;
+        let assignedName = null;
+        if (assigned_to) {
+          const { data: users, error: userError } = await supabase
+            .from('profiles')
+            .select('first_name, last_name')
+            .eq('id', assigned_to)
+            .limit(1);
+          if (!userError && users && users.length > 0 && (users[0].first_name || users[0].last_name)) {
+            assignedName = `${users[0].first_name || ''} ${users[0].last_name || ''}`.trim() || null;
+          }
+        }
+        updates.assigned_to_name = assignedName;
       }
-    }
-    if (assigned_to !== undefined) {
-      updates.push('assigned_to = ?');
-      values.push(assigned_to || null);
-      // Mettre à jour le nom de l'utilisateur assigné
-      if (assigned_to) {
-        const [users] = await pool.execute(
-          'SELECT first_name, last_name FROM profiles WHERE id = ?',
-          [assigned_to]
-        );
-        if (users.length > 0 && users[0].first_name && users[0].last_name) {
-          updates.push('assigned_to_name = ?');
-          values.push(`${users[0].first_name} ${users[0].last_name}`);
+      if (planned_start_date !== undefined) updates.planned_start_date = planned_start_date || null;
+      if (planned_end_date !== undefined) updates.planned_end_date = planned_end_date || null;
+      if (actual_start_date !== undefined) updates.actual_start_date = actual_start_date || null;
+      if (actual_end_date !== undefined) updates.actual_end_date = actual_end_date || null;
+      if (estimated_cost !== undefined) updates.estimated_cost = estimated_cost || null;
+      if (actual_cost !== undefined) updates.actual_cost = actual_cost || null;
+      if (supplier_name !== undefined) updates.supplier_name = supplier_name || null;
+      if (supplier_contact !== undefined) updates.supplier_contact = supplier_contact || null;
+      if (notes !== undefined) updates.notes = notes || null;
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('works')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour du travail (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const updates = [];
+      const values = [];
+      
+      if (title !== undefined) { updates.push('title = ?'); values.push(title); }
+      if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+      if (work_type !== undefined) { updates.push('work_type = ?'); values.push(work_type); }
+      if (location !== undefined) { updates.push('location = ?'); values.push(location); }
+      if (priority !== undefined) { updates.push('priority = ?'); values.push(priority); }
+      if (status !== undefined) { 
+        updates.push('status = ?'); 
+        values.push(status);
+        // Si le statut passe à "en_cours" et actual_start_date n'est pas défini, le définir
+        if (status === 'en_cours' && !actual_start_date) {
+          updates.push('actual_start_date = CURRENT_DATE');
+        }
+        // Si le statut passe à "terminé" et actual_end_date n'est pas défini, le définir
+        if (status === 'terminé' && !actual_end_date) {
+          updates.push('actual_end_date = CURRENT_DATE');
+        }
+      }
+      if (assigned_to !== undefined) {
+        updates.push('assigned_to = ?');
+        values.push(assigned_to || null);
+        // Mettre à jour le nom de l'utilisateur assigné
+        if (assigned_to) {
+          const [users] = await pool.execute(
+            'SELECT first_name, last_name FROM profiles WHERE id = ?',
+            [assigned_to]
+          );
+          if (users.length > 0 && users[0].first_name && users[0].last_name) {
+            updates.push('assigned_to_name = ?');
+            values.push(`${users[0].first_name} ${users[0].last_name}`);
+          } else {
+            updates.push('assigned_to_name = NULL');
+          }
         } else {
           updates.push('assigned_to_name = NULL');
         }
-      } else {
-        updates.push('assigned_to_name = NULL');
       }
+      if (planned_start_date !== undefined) { updates.push('planned_start_date = ?'); values.push(planned_start_date || null); }
+      if (planned_end_date !== undefined) { updates.push('planned_end_date = ?'); values.push(planned_end_date || null); }
+      if (actual_start_date !== undefined) { updates.push('actual_start_date = ?'); values.push(actual_start_date || null); }
+      if (actual_end_date !== undefined) { updates.push('actual_end_date = ?'); values.push(actual_end_date || null); }
+      if (estimated_cost !== undefined) { updates.push('estimated_cost = ?'); values.push(estimated_cost || null); }
+      if (actual_cost !== undefined) { updates.push('actual_cost = ?'); values.push(actual_cost || null); }
+      if (supplier_name !== undefined) { updates.push('supplier_name = ?'); values.push(supplier_name || null); }
+      if (supplier_contact !== undefined) { updates.push('supplier_contact = ?'); values.push(supplier_contact || null); }
+      if (notes !== undefined) { updates.push('notes = ?'); values.push(notes || null); }
+      
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+      
+      values.push(id);
+      
+      await pool.execute(
+        `UPDATE works SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
     }
-    if (planned_start_date !== undefined) { updates.push('planned_start_date = ?'); values.push(planned_start_date || null); }
-    if (planned_end_date !== undefined) { updates.push('planned_end_date = ?'); values.push(planned_end_date || null); }
-    if (actual_start_date !== undefined) { updates.push('actual_start_date = ?'); values.push(actual_start_date || null); }
-    if (actual_end_date !== undefined) { updates.push('actual_end_date = ?'); values.push(actual_end_date || null); }
-    if (estimated_cost !== undefined) { updates.push('estimated_cost = ?'); values.push(estimated_cost || null); }
-    if (actual_cost !== undefined) { updates.push('actual_cost = ?'); values.push(actual_cost || null); }
-    if (supplier_name !== undefined) { updates.push('supplier_name = ?'); values.push(supplier_name || null); }
-    if (supplier_contact !== undefined) { updates.push('supplier_contact = ?'); values.push(supplier_contact || null); }
-    if (notes !== undefined) { updates.push('notes = ?'); values.push(notes || null); }
-    
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
-    }
-    
-    values.push(id);
-    
-    await pool.execute(
-      `UPDATE works SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
     
     res.json({ message: 'Travail mis à jour' });
   } catch (error) {
@@ -3303,6 +4861,20 @@ app.put('/api/works/:id', authenticateToken, async (req, res) => {
 app.delete('/api/works/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { error } = await supabase
+        .from('works')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression du travail (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Travail supprimé' });
+    }
+
     await pool.execute('DELETE FROM works WHERE id = ?', [id]);
     res.json({ message: 'Travail supprimé' });
   } catch (error) {
@@ -3318,12 +4890,32 @@ app.delete('/api/works/:id', authenticateToken, async (req, res) => {
 // Matériel Réseau
 app.get('/api/network/equipment', authenticateToken, async (req, res) => {
   try {
-    // Vérifier que la table existe, sinon la créer
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('network_equipment')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération du matériel réseau (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const equipment = data || [];
+      return res.json(equipment.map(eq => ({
+        ...eq,
+        installation_date: eq.installation_date || null,
+        warranty_expiry: eq.warranty_expiry || null,
+        created_at: eq.created_at || null,
+        updated_at: eq.updated_at || null,
+      })));
+    }
+
+    // Fallback MySQL
     try {
       await ensureNetworkTables();
     } catch (migrationError) {
       console.error('Erreur lors de la migration des tables réseau:', migrationError);
-      // Continuer quand même, peut-être que les tables existent déjà
     }
     const [equipment] = await pool.execute('SELECT * FROM network_equipment ORDER BY created_at DESC');
     res.json(equipment.map(eq => ({
@@ -3346,6 +4938,45 @@ app.post('/api/network/equipment', authenticateToken, async (req, res) => {
   try {
     const { name, type, brand, model, serial_number, ip_address, mac_address, location, status, installation_date, warranty_expiry, notes } = req.body;
     const id = uuidv4();
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('network_equipment')
+        .insert({
+          id,
+          name,
+          type,
+          brand: brand || null,
+          model: model || null,
+          serial_number: serial_number || null,
+          ip_address: ip_address || null,
+          mac_address: mac_address || null,
+          location: location || null,
+          status,
+          installation_date: installation_date || null,
+          warranty_expiry: warranty_expiry || null,
+          notes: notes || null,
+          created_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création du matériel réseau (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const { data: newEquipment, error: fetchError } = await supabase
+        .from('network_equipment')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError || !newEquipment) {
+        console.warn('Matériel réseau créé mais impossible de le relire depuis Supabase:', fetchError);
+        return res.json({ id, message: 'Équipement créé' });
+      }
+
+      return res.json(newEquipment);
+    }
+
     await pool.execute(
       `INSERT INTO network_equipment (id, name, type, brand, model, serial_number, ip_address, mac_address, location, status, installation_date, warranty_expiry, notes, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -3362,9 +4993,47 @@ app.post('/api/network/equipment', authenticateToken, async (req, res) => {
 app.put('/api/network/equipment/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const fields = ['name', 'type', 'brand', 'model', 'serial_number', 'ip_address', 'mac_address', 'location', 'status', 'installation_date', 'warranty_expiry', 'notes'];
+
+    if (supabase) {
+      const updates = {};
+      fields.forEach(field => {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field] || null;
+        }
+      });
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour' });
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('network_equipment')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour du matériel réseau (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const { data: updated, error: fetchError } = await supabase
+        .from('network_equipment')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError || !updated) {
+        return res.json({ message: 'Équipement mis à jour' });
+      }
+
+      return res.json(updated);
+    }
+
     const updates = [];
     const values = [];
-    const fields = ['name', 'type', 'brand', 'model', 'serial_number', 'ip_address', 'mac_address', 'location', 'status', 'installation_date', 'warranty_expiry', 'notes'];
     fields.forEach(field => {
       if (req.body[field] !== undefined) {
         updates.push(`${field} = ?`);
@@ -3385,6 +5054,20 @@ app.put('/api/network/equipment/:id', authenticateToken, async (req, res) => {
 app.delete('/api/network/equipment/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { error } = await supabase
+        .from('network_equipment')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression du matériel réseau (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Équipement supprimé' });
+    }
+
     await pool.execute('DELETE FROM network_equipment WHERE id = ?', [id]);
     res.json({ message: 'Équipement supprimé' });
   } catch (error) {
@@ -3396,12 +5079,32 @@ app.delete('/api/network/equipment/:id', authenticateToken, async (req, res) => 
 // Abonnements Réseau
 app.get('/api/network/subscriptions', authenticateToken, async (req, res) => {
   try {
-    // Vérifier que la table existe, sinon la créer
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('network_subscriptions')
+        .select('*')
+        .order('renewal_date', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des abonnements réseau (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const subs = data || [];
+      return res.json(subs.map(sub => ({
+        ...sub,
+        start_date: sub.start_date || null,
+        renewal_date: sub.renewal_date || null,
+        created_at: sub.created_at || null,
+        updated_at: sub.updated_at || null,
+      })));
+    }
+
+    // Fallback MySQL
     try {
       await ensureNetworkTables();
     } catch (migrationError) {
       console.error('Erreur lors de la migration des tables réseau:', migrationError);
-      // Continuer quand même, peut-être que les tables existent déjà
     }
     const [subscriptions] = await pool.execute('SELECT * FROM network_subscriptions ORDER BY renewal_date DESC');
     res.json(subscriptions.map(sub => ({
@@ -3424,6 +5127,44 @@ app.post('/api/network/subscriptions', authenticateToken, async (req, res) => {
   try {
     const { service_name, provider, subscription_type, monthly_cost, start_date, renewal_date, contract_number, contact_person, contact_phone, contact_email, status, notes } = req.body;
     const id = uuidv4();
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('network_subscriptions')
+        .insert({
+          id,
+          service_name,
+          provider,
+          subscription_type,
+          monthly_cost: monthly_cost || 0,
+          start_date: start_date || null,
+          renewal_date: renewal_date || null,
+          contract_number: contract_number || null,
+          contact_person: contact_person || null,
+          contact_phone: contact_phone || null,
+          contact_email: contact_email || null,
+          status,
+          notes: notes || null,
+          created_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de l\'abonnement réseau (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const { data: newSubscription, error: fetchError } = await supabase
+        .from('network_subscriptions')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError || !newSubscription) {
+        return res.json({ id, message: 'Abonnement créé' });
+      }
+
+      return res.json(newSubscription);
+    }
+
     await pool.execute(
       `INSERT INTO network_subscriptions (id, service_name, provider, subscription_type, monthly_cost, start_date, renewal_date, contract_number, contact_person, contact_phone, contact_email, status, notes, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -3440,9 +5181,46 @@ app.post('/api/network/subscriptions', authenticateToken, async (req, res) => {
 app.put('/api/network/subscriptions/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const fields = ['service_name', 'provider', 'subscription_type', 'monthly_cost', 'start_date', 'renewal_date', 'contract_number', 'contact_person', 'contact_phone', 'contact_email', 'status', 'notes'];
+    if (supabase) {
+      const updates = {};
+      fields.forEach(field => {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field] || null;
+        }
+      });
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour' });
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('network_subscriptions')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour de l\'abonnement réseau (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const { data: updated, error: fetchError } = await supabase
+        .from('network_subscriptions')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError || !updated) {
+        return res.json({ message: 'Abonnement mis à jour' });
+      }
+
+      return res.json(updated);
+    }
+
     const updates = [];
     const values = [];
-    const fields = ['service_name', 'provider', 'subscription_type', 'monthly_cost', 'start_date', 'renewal_date', 'contract_number', 'contact_person', 'contact_phone', 'contact_email', 'status', 'notes'];
     fields.forEach(field => {
       if (req.body[field] !== undefined) {
         updates.push(`${field} = ?`);
@@ -3463,6 +5241,20 @@ app.put('/api/network/subscriptions/:id', authenticateToken, async (req, res) =>
 app.delete('/api/network/subscriptions/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { error } = await supabase
+        .from('network_subscriptions')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression de l\'abonnement réseau (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Abonnement supprimé' });
+    }
+
     await pool.execute('DELETE FROM network_subscriptions WHERE id = ?', [id]);
     res.json({ message: 'Abonnement supprimé' });
   } catch (error) {
@@ -3474,12 +5266,31 @@ app.delete('/api/network/subscriptions/:id', authenticateToken, async (req, res)
 // Inventaire Réseau
 app.get('/api/network/inventory', authenticateToken, async (req, res) => {
   try {
-    // Vérifier que la table existe, sinon la créer
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('network_inventory')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération de l\'inventaire réseau (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const inventory = data || [];
+      return res.json(inventory.map(item => ({
+        ...item,
+        purchase_date: item.purchase_date || null,
+        created_at: item.created_at || null,
+        updated_at: item.updated_at || null,
+      })));
+    }
+
+    // Fallback MySQL
     try {
       await ensureNetworkTables();
     } catch (migrationError) {
       console.error('Erreur lors de la migration des tables réseau:', migrationError);
-      // Continuer quand même, peut-être que les tables existent déjà
     }
     const [inventory] = await pool.execute('SELECT * FROM network_inventory ORDER BY created_at DESC');
     res.json(inventory.map(item => ({
@@ -3501,6 +5312,43 @@ app.post('/api/network/inventory', authenticateToken, async (req, res) => {
   try {
     const { item_name, category, brand, model, quantity, unit, location, supplier, purchase_date, purchase_cost, notes } = req.body;
     const id = uuidv4();
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('network_inventory')
+        .insert({
+          id,
+          item_name,
+          category,
+          brand: brand || null,
+          model: model || null,
+          quantity: quantity || 1,
+          unit,
+          location: location || null,
+          supplier: supplier || null,
+          purchase_date: purchase_date || null,
+          purchase_cost: purchase_cost || null,
+          notes: notes || null,
+          created_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de l\'article réseau (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const { data: newItem, error: fetchError } = await supabase
+        .from('network_inventory')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError || !newItem) {
+        return res.json({ id, message: 'Article créé' });
+      }
+
+      return res.json(newItem);
+    }
+
     await pool.execute(
       `INSERT INTO network_inventory (id, item_name, category, brand, model, quantity, unit, location, supplier, purchase_date, purchase_cost, notes, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -3517,9 +5365,46 @@ app.post('/api/network/inventory', authenticateToken, async (req, res) => {
 app.put('/api/network/inventory/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const fields = ['item_name', 'category', 'brand', 'model', 'quantity', 'unit', 'location', 'supplier', 'purchase_date', 'purchase_cost', 'notes'];
+    if (supabase) {
+      const updates = {};
+      fields.forEach(field => {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field] || null;
+        }
+      });
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour' });
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('network_inventory')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour de l\'article réseau (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const { data: updated, error: fetchError } = await supabase
+        .from('network_inventory')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError || !updated) {
+        return res.json({ message: 'Article mis à jour' });
+      }
+
+      return res.json(updated);
+    }
+
     const updates = [];
     const values = [];
-    const fields = ['item_name', 'category', 'brand', 'model', 'quantity', 'unit', 'location', 'supplier', 'purchase_date', 'purchase_cost', 'notes'];
     fields.forEach(field => {
       if (req.body[field] !== undefined) {
         updates.push(`${field} = ?`);
@@ -3540,6 +5425,20 @@ app.put('/api/network/inventory/:id', authenticateToken, async (req, res) => {
 app.delete('/api/network/inventory/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { error } = await supabase
+        .from('network_inventory')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression de l\'article réseau (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Article supprimé' });
+    }
+
     await pool.execute('DELETE FROM network_inventory WHERE id = ?', [id]);
     res.json({ message: 'Article supprimé' });
   } catch (error) {
@@ -3552,91 +5451,126 @@ app.delete('/api/network/inventory/:id', authenticateToken, async (req, res) => 
 // ROUTES POUR LES RONDES QUOTIDIENNES
 // =====================================================
 
-// Récupérer les rondes quotidiennes
+// Récupérer les rondes quotidiennes (Supabase)
 app.get('/api/daily-rounds', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les rondes quotidiennes.' });
+    }
+
     const { technician_id, round_type } = req.query;
-    let query = 'SELECT dr.*, p.first_name, p.last_name FROM daily_rounds dr LEFT JOIN profiles p ON dr.technician_id = p.id WHERE 1=1';
-    const params = [];
 
-    if (technician_id && technician_id.trim() !== '') {
-      query += ' AND dr.technician_id = ?';
-      params.push(technician_id);
+    let query = supabase
+      .from('daily_rounds')
+      .select('*')
+      .order('round_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (technician_id && typeof technician_id === 'string' && technician_id.trim() !== '') {
+      query = query.eq('technician_id', technician_id);
     }
 
-    if (round_type && round_type.trim() !== '') {
-      query += ' AND dr.round_type = ?';
-      params.push(round_type);
+    if (round_type && typeof round_type === 'string' && round_type.trim() !== '') {
+      query = query.eq('round_type', round_type);
     }
 
-    query += ' ORDER BY dr.round_date DESC, dr.created_at DESC';
+    const { data, error } = await query;
 
-    const [rounds] = await pool.execute(query, params);
-    res.json(rounds.map(round => ({
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des rondes:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const rounds = data || [];
+
+    const technicianIds = Array.from(new Set(rounds.map(r => r.technician_id).filter(Boolean)));
+    let profilesById = {};
+    if (technicianIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name')
+        .in('id', technicianIds);
+
+      if (!profilesError && profiles) {
+        profilesById = profiles.reduce((acc, p) => {
+          acc[p.id] = p;
+          return acc;
+        }, {});
+      }
+    }
+
+    res.json(rounds.map(round => {
+      const profile = round.technician_id ? profilesById[round.technician_id] : null;
+      const computedTechName = profile
+        ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || null
+        : null;
+
+      return {
       ...round,
-      technician_name: round.technician_name || (round.first_name && round.last_name ? `${round.first_name} ${round.last_name}` : null),
+        technician_name: round.technician_name || computedTechName,
       round_date: round.round_date || null,
       start_time: round.start_time || null,
       end_time: round.end_time || null,
       photo_urls: safeJsonParse(round.photo_urls, []),
       created_at: round.created_at || null,
       updated_at: round.updated_at || null,
-    })));
+      };
+    }));
   } catch (error) {
     console.error('Erreur lors de la récupération des rondes:', error);
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table daily_rounds non trouvée. Veuillez exécuter le script SQL: database/create_daily_rounds_tables.sql' });
-    }
-    res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
 // Créer une ronde quotidienne
 app.post('/api/daily-rounds', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les rondes quotidiennes.' });
+    }
+
     const { technician_id, technician_name, round_type, round_date, status, start_time, notes, photo_urls } = req.body;
     
-    // Validation des champs requis
     if (!technician_id || !round_type || !round_date) {
       return res.status(400).json({ error: 'Les champs technician_id, round_type et round_date sont requis' });
     }
     
     const id = uuidv4();
     
-    // Formater start_time si fourni
     let formattedStartTime = null;
     if (start_time) {
-      // Si c'est déjà au format MySQL, l'utiliser tel quel
-      if (typeof start_time === 'string' && start_time.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
-        formattedStartTime = start_time;
-      } else {
-        // Sinon, essayer de parser et formater
         try {
           const date = new Date(start_time);
-          formattedStartTime = formatDateTime(date);
+        formattedStartTime = date.toISOString();
         } catch (e) {
           console.error('Erreur de formatage de start_time:', e);
           formattedStartTime = null;
-        }
       }
     }
-    
-    await pool.execute(
-      `INSERT INTO daily_rounds (
-        id, technician_id, technician_name, round_type, round_date, status, start_time, notes, photo_urls
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+
+    const payload = {
         id,
         technician_id,
-        technician_name || null,
+      technician_name: technician_name || null,
         round_type,
         round_date,
-        status || 'en_cours',
-        formattedStartTime,
-        notes || null,
-        JSON.stringify(photo_urls || [])
-      ]
-    );
+      status: status || 'en_cours',
+      start_time: formattedStartTime,
+      notes: notes || null,
+      photo_urls: photo_urls || []
+    };
+
+    const { error: insertError } = await supabase
+      .from('daily_rounds')
+      .insert([payload]);
+
+    if (insertError) {
+      console.error('Erreur Supabase lors de la création de la ronde:', insertError);
+      if (insertError.code === '23505') {
+        return res.status(400).json({ error: 'Une ronde existe déjà pour cette date et ce technicien' });
+      }
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
 
     const ids = await getSupervisorIds();
     const techName = technician_name || 'Un technicien';
@@ -3644,59 +5578,102 @@ app.post('/api/daily-rounds', authenticateToken, async (req, res) => {
       await createNotification(uid, `Nouvelle ronde quotidienne: ${round_type} par ${techName} (${round_date}).`, 'dailyRoundsView');
     }
 
-    const [newRound] = await pool.execute(
-      'SELECT dr.*, p.first_name, p.last_name FROM daily_rounds dr LEFT JOIN profiles p ON dr.technician_id = p.id WHERE dr.id = ?',
-      [id]
-    );
+    const { data: newRound, error: fetchError } = await supabase
+      .from('daily_rounds')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError || !newRound) {
+      console.warn('Ronde créée mais impossible de la relire depuis Supabase:', fetchError);
+      return res.json({ id, message: 'Ronde créée' });
+    }
+
+    let finalTechName = newRound.technician_name || null;
+    if (!finalTechName && newRound.technician_id) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', newRound.technician_id)
+        .maybeSingle();
+
+      if (!profileError && profile) {
+        finalTechName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || null;
+      }
+    }
 
     res.json({
-      ...newRound[0],
-      technician_name: newRound[0].technician_name || (newRound[0].first_name && newRound[0].last_name ? `${newRound[0].first_name} ${newRound[0].last_name}` : null),
-      photo_urls: safeJsonParse(newRound[0].photo_urls, []),
+      ...newRound,
+      technician_name: finalTechName,
+      photo_urls: safeJsonParse(newRound.photo_urls, []),
     });
   } catch (error) {
     console.error('Erreur lors de la création de la ronde:', error);
-    if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(400).json({ error: 'Une ronde existe déjà pour cette date et ce technicien' });
-    }
     res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
   }
 });
 
-// Mettre à jour une ronde quotidienne
+// Mettre à jour une ronde quotidienne (Supabase)
 app.put('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les rondes quotidiennes.' });
+    }
+
     const { id } = req.params;
     const { status, end_time, notes, photo_urls, technician_name } = req.body;
     
-    const updates = [];
-    const values = [];
-    
-    if (status !== undefined) { updates.push('status = ?'); values.push(status); }
-    if (end_time !== undefined) { updates.push('end_time = ?'); values.push(end_time); }
-    if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
-    if (technician_name !== undefined) { updates.push('technician_name = ?'); values.push(technician_name); }
-    if (photo_urls !== undefined) { updates.push('photo_urls = ?'); values.push(JSON.stringify(photo_urls)); }
-    
-    if (updates.length === 0) {
+    const updates = {};
+
+    if (status !== undefined) updates.status = status;
+    if (end_time !== undefined) updates.end_time = end_time;
+    if (notes !== undefined) updates.notes = notes;
+    if (technician_name !== undefined) updates.technician_name = technician_name;
+    if (photo_urls !== undefined) updates.photo_urls = photo_urls;
+    updates.updated_at = new Date().toISOString();
+
+    if (Object.keys(updates).length === 1 && updates.updated_at) {
       return res.status(400).json({ error: 'Aucune donnée à mettre à jour' });
     }
     
-    values.push(id);
-    await pool.execute(
-      `UPDATE daily_rounds SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
+    const { error: updateError } = await supabase
+      .from('daily_rounds')
+      .update(updates)
+      .eq('id', id);
 
-    const [updatedRound] = await pool.execute(
-      'SELECT dr.*, p.first_name, p.last_name FROM daily_rounds dr LEFT JOIN profiles p ON dr.technician_id = p.id WHERE dr.id = ?',
-      [id]
-    );
+    if (updateError) {
+      console.error('Erreur Supabase lors de la mise à jour de la ronde:', updateError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const { data: updatedRound, error: fetchError } = await supabase
+      .from('daily_rounds')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError || !updatedRound) {
+      console.warn('Ronde mise à jour mais impossible de la relire depuis Supabase:', fetchError);
+      return res.json({ message: 'Ronde mise à jour' });
+    }
+
+    let finalTechName = updatedRound.technician_name || null;
+    if (!finalTechName && updatedRound.technician_id) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', updatedRound.technician_id)
+        .maybeSingle();
+
+      if (!profileError && profile) {
+        finalTechName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || null;
+      }
+    }
 
     res.json({
-      ...updatedRound[0],
-      technician_name: updatedRound[0].technician_name || (updatedRound[0].first_name && updatedRound[0].last_name ? `${updatedRound[0].first_name} ${updatedRound[0].last_name}` : null),
-      photo_urls: safeJsonParse(updatedRound[0].photo_urls, []),
+      ...updatedRound,
+      technician_name: finalTechName,
+      photo_urls: safeJsonParse(updatedRound.photo_urls, []),
     });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de la ronde:', error);
@@ -3704,23 +5681,39 @@ app.put('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Supprimer une ronde quotidienne
+// Supprimer une ronde quotidienne (Supabase)
 app.delete('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les rondes quotidiennes.' });
+    }
+
     const { id } = req.params;
     
-    // Vérifier que la ronde existe
-    const [existingRound] = await pool.execute(
-      'SELECT * FROM daily_rounds WHERE id = ?',
-      [id]
-    );
-    
-    if (existingRound.length === 0) {
+    const { data: existingRound, error: fetchError } = await supabase
+      .from('daily_rounds')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Erreur Supabase lors de la vérification de la ronde:', fetchError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    if (!existingRound) {
       return res.status(404).json({ error: 'Ronde non trouvée' });
     }
     
-    // Supprimer la ronde (les réponses seront supprimées automatiquement grâce à ON DELETE CASCADE)
-    await pool.execute('DELETE FROM daily_rounds WHERE id = ?', [id]);
+    const { error: deleteError } = await supabase
+      .from('daily_rounds')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('Erreur Supabase lors de la suppression de la ronde:', deleteError);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
     
     res.json({ message: 'Ronde supprimée avec succès' });
   } catch (error) {
@@ -3729,21 +5722,32 @@ app.delete('/api/daily-rounds/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Récupérer les templates de checklist
+// Récupérer les templates de checklist (Supabase)
 app.get('/api/round-checklist-templates', authenticateToken, async (req, res) => {
   try {
-    const { round_type } = req.query;
-    let query = 'SELECT * FROM round_checklist_templates WHERE 1=1';
-    const params = [];
-
-    if (round_type) {
-      query += ' AND round_type = ?';
-      params.push(round_type);
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les templates de rondes.' });
     }
 
-    query += ' ORDER BY item_order ASC';
+    const { round_type } = req.query;
+    let query = supabase
+      .from('round_checklist_templates')
+      .select('*')
+      .order('item_order', { ascending: true });
 
-    const [templates] = await pool.execute(query, params);
+    if (round_type && typeof round_type === 'string' && round_type.trim() !== '') {
+      query = query.eq('round_type', round_type);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des templates:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const templates = data || [];
+
     res.json(templates.map(template => ({
       ...template,
       options: safeJsonParse(template.options, null),
@@ -3752,60 +5756,54 @@ app.get('/api/round-checklist-templates', authenticateToken, async (req, res) =>
     })));
   } catch (error) {
     console.error('Erreur lors de la récupération des templates:', error);
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table round_checklist_templates non trouvée. Veuillez exécuter le script SQL: database/create_daily_rounds_tables.sql' });
-    }
     res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
   }
 });
 
-// Récupérer les réponses aux checklists
+// Récupérer les réponses aux checklists (Supabase)
 app.get('/api/round-checklist-responses', authenticateToken, async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase non configuré pour les réponses de rondes.' });
+    }
+
     const { round_id } = req.query;
     
     if (!round_id) {
       return res.status(400).json({ error: 'round_id est requis' });
     }
 
-    const [responses] = await pool.execute(
-      `SELECT rcr.*, 
-       rct.id as template_id_full,
-       rct.title as template_title, 
-       rct.description as template_description,
-       rct.item_type, 
-       rct.is_required,
-       rct.item_order,
-       rct.round_type as template_round_type,
-       rct.options as template_options
-       FROM round_checklist_responses rcr
-       LEFT JOIN round_checklist_templates rct ON rcr.template_id = rct.id
-       WHERE rcr.round_id = ?
-       ORDER BY rct.item_order ASC`,
-      [round_id]
-    );
+    const { data, error } = await supabase
+      .from('round_checklist_responses')
+      .select('*, template:round_checklist_templates(*)')
+      .eq('round_id', round_id)
+      .order('template(item_order)', { ascending: true });
+
+    if (error) {
+      console.error('Erreur Supabase lors de la récupération des réponses:', error);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
+
+    const responses = data || [];
 
     res.json(responses.map(response => ({
       ...response,
       photo_urls: safeJsonParse(response.photo_urls, []),
-      template: response.template_title ? {
-        id: response.template_id_full,
-        title: response.template_title,
-        description: response.template_description,
-        item_type: response.item_type,
-        is_required: response.is_required === 1 || response.is_required === true,
-        item_order: response.item_order,
-        round_type: response.template_round_type,
-        options: safeJsonParse(response.template_options, null),
+      template: response.template ? {
+        id: response.template.id,
+        title: response.template.title,
+        description: response.template.description,
+        item_type: response.template.item_type,
+        is_required: response.template.is_required === 1 || response.template.is_required === true,
+        item_order: response.template.item_order,
+        round_type: response.template.round_type,
+        options: safeJsonParse(response.template.options, null),
       } : null,
       created_at: response.created_at || null,
       updated_at: response.updated_at || null,
     })));
   } catch (error) {
     console.error('Erreur lors de la récupération des réponses:', error);
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 1146) {
-      return res.status(500).json({ error: 'Table round_checklist_responses non trouvée. Veuillez exécuter le script SQL: database/create_daily_rounds_tables.sql' });
-    }
     res.status(500).json({ error: 'Erreur serveur: ' + (error.message || 'Erreur inconnue') });
   }
 });
@@ -3968,6 +5966,20 @@ app.post('/api/audits/upload-report', authenticateToken, uploadAuditReport.singl
 // Routes pour les risques
 app.get('/api/risks', authenticateToken, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('risks')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des risques (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json(data || []);
+    }
+
     const [risks] = await pool.execute(
       'SELECT * FROM risks ORDER BY created_at DESC'
     );
@@ -3992,6 +6004,45 @@ app.post('/api/risks', authenticateToken, async (req, res) => {
     } = req.body;
     
     const id = uuidv4();
+
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('risks')
+        .insert({
+          id,
+          title,
+          description,
+          risk_category,
+          poste: poste || null,
+          risk_source: risk_source || null,
+          probability,
+          severity,
+          risk_level,
+          current_controls: current_controls || null,
+          treatment_plan: treatment_plan || null,
+          action_plan: action_plan || null,
+          responsible_person: responsible_person || null,
+          due_date: due_date || null,
+          status: status || 'identifié',
+          created_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création du risque (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const ids = await getSupervisorIds();
+      const creatorName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Un agent';
+      for (const uid of ids) {
+        await createNotification(uid, `Nouveau risque identifié: ${title} par ${creatorName}.`, 'qhseRisks');
+      }
+      if (responsible_person) {
+        await createNotification(responsible_person, `Nouveau risque à traiter: ${title}.`, 'qhseRisks');
+      }
+
+      return res.json({ id, message: 'Risque créé' });
+    }
 
     await pool.execute(
       `INSERT INTO risks (
@@ -4028,9 +6079,6 @@ app.put('/api/risks/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
-    const updates = [];
-    const values = [];
-
     const allowedFields = [
       'title', 'description', 'risk_category', 'poste', 'risk_source', 'probability', 'severity',
       'risk_level', 'current_controls', 'residual_probability', 'residual_severity',
@@ -4038,23 +6086,51 @@ app.put('/api/risks/:id', authenticateToken, async (req, res) => {
       'due_date', 'status', 'review_date', 'last_review_date', 'reviewed_by'
     ];
 
-    allowedFields.forEach(field => {
-      if (updateData[field] !== undefined) {
-        updates.push(`${field} = ?`);
-        values.push(updateData[field]);
+    if (supabase) {
+      const updates = {};
+      allowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          updates[field] = updateData[field];
+        }
+      });
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
       }
-    });
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('risks')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour du risque (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const updates = [];
+      const values = [];
+
+      allowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          updates.push(`${field} = ?`);
+          values.push(updateData[field]);
+        }
+      });
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+
+      values.push(id);
+
+      await pool.execute(
+        `UPDATE risks SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
     }
-
-    values.push(id);
-
-    await pool.execute(
-      `UPDATE risks SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
 
     res.json({ message: 'Risque mis à jour' });
   } catch (error) {
@@ -4067,6 +6143,20 @@ app.delete('/api/risks/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     
+    if (supabase) {
+      const { error } = await supabase
+        .from('risks')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression du risque (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Risque supprimé' });
+    }
+
     await pool.execute('DELETE FROM risks WHERE id = ?', [id]);
     
     res.json({ message: 'Risque supprimé' });
@@ -4080,6 +6170,53 @@ app.delete('/api/risks/:id', authenticateToken, async (req, res) => {
 app.get('/api/risks/:riskId/actions', authenticateToken, async (req, res) => {
   try {
     const { riskId } = req.params;
+    if (supabase) {
+      const { data: actions, error } = await supabase
+        .from('risk_actions')
+        .select('*')
+        .eq('risk_id', riskId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur lors de la récupération des actions de risque (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      const list = actions || [];
+      const assignedIds = Array.from(new Set(list.map(a => a.assigned_to).filter(Boolean)));
+
+      let profilesById = {};
+      if (assignedIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name')
+          .in('id', assignedIds);
+
+        if (!profilesError && profiles) {
+          profilesById = profiles.reduce((acc, p) => {
+            acc[p.id] = p;
+            return acc;
+          }, {});
+        }
+      }
+
+      const result = list.map(a => {
+        const assignedProfile = a.assigned_to ? profilesById[a.assigned_to] : null;
+        const assignedName = assignedProfile
+          ? `${assignedProfile.first_name || ''} ${assignedProfile.last_name || ''}`.trim() || null
+          : null;
+
+        return {
+          ...a,
+          assigned_to_first_name: assignedProfile ? assignedProfile.first_name : null,
+          assigned_to_last_name: assignedProfile ? assignedProfile.last_name : null,
+          assigned_to_name: assignedName,
+        };
+      });
+
+      return res.json(result);
+    }
+
     const [actions] = await pool.execute(
       `SELECT ra.*, 
         p.first_name as assigned_to_first_name,
@@ -4120,6 +6257,32 @@ app.post('/api/risks/:riskId/actions', authenticateToken, async (req, res) => {
     
     const id = uuidv4();
 
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('risk_actions')
+        .insert({
+          id,
+          risk_id: riskId,
+          action_title,
+          action_description: action_description || null,
+          action_type: action_type || 'mitigation',
+          action_status: action_status || 'planifiée',
+          responsible_person: responsible_person || null,
+          assigned_to: assigned_to || null,
+          due_date: due_date || null,
+          effectiveness_level: effectiveness_level || null,
+          notes: notes || null,
+          created_by: req.user.id
+        });
+
+      if (insertError) {
+        console.error('Erreur lors de la création de l\'action de risque (Supabase):', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ id, message: 'Action ajoutée' });
+    }
+
     await pool.execute(
       `INSERT INTO risk_actions (
         id, risk_id, action_title, action_description, action_type, action_status,
@@ -4156,32 +6319,57 @@ app.put('/api/risks/actions/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
-    const updates = [];
-    const values = [];
-
     const allowedFields = [
       'action_title', 'action_description', 'action_type', 'action_status',
       'responsible_person', 'assigned_to', 'due_date', 'completion_date',
       'effectiveness_level', 'notes'
     ];
 
-    allowedFields.forEach(field => {
-      if (updateData[field] !== undefined) {
-        updates.push(`${field} = ?`);
-        values.push(updateData[field]);
+    if (supabase) {
+      const updates = {};
+      allowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          updates[field] = updateData[field];
+        }
+      });
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
       }
-    });
 
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      updates.updated_at = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('risk_actions')
+        .update(updates)
+        .eq('id', id);
+
+      if (updateError) {
+        console.error('Erreur lors de la mise à jour de l\'action de risque (Supabase):', updateError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      const updates = [];
+      const values = [];
+
+      allowedFields.forEach(field => {
+        if (updateData[field] !== undefined) {
+          updates.push(`${field} = ?`);
+          values.push(updateData[field]);
+        }
+      });
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'Aucune mise à jour fournie' });
+      }
+
+      values.push(id);
+
+      await pool.execute(
+        `UPDATE risk_actions SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
     }
-
-    values.push(id);
-
-    await pool.execute(
-      `UPDATE risk_actions SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
 
     res.json({ message: 'Action mise à jour' });
   } catch (error) {
@@ -4193,6 +6381,20 @@ app.put('/api/risks/actions/:id', authenticateToken, async (req, res) => {
 app.delete('/api/risks/actions/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { error } = await supabase
+        .from('risk_actions')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Erreur lors de la suppression de l\'action de risque (Supabase):', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ message: 'Action supprimée' });
+    }
+
     await pool.execute('DELETE FROM risk_actions WHERE id = ?', [id]);
     res.json({ message: 'Action supprimée' });
   } catch (error) {
@@ -4764,6 +6966,21 @@ app.delete('/api/qhse-anomalies/:id', authenticateToken, async (req, res) => {
 // Routes pour les notifications
 app.get('/api/notifications', authenticateToken, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('recipient_id', req.user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erreur Supabase lors de la récupération des notifications:', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json(data || []);
+    }
+
     const [notifications] = await pool.execute(
       'SELECT * FROM notifications WHERE recipient_id = ? ORDER BY created_at DESC',
       [req.user.id]
@@ -4780,6 +6997,26 @@ app.post('/api/notifications', authenticateToken, async (req, res) => {
     const { recipient_id, message, link } = req.body;
     const id = uuidv4();
 
+    if (supabase) {
+      const { error: insertError } = await supabase
+        .from('notifications')
+        .insert({
+          id,
+          recipient_id,
+          message,
+          link: link || null,
+          read: false,
+          created_at: new Date().toISOString()
+        });
+
+      if (insertError) {
+        console.error('Erreur Supabase lors de la création de la notification:', insertError.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      return res.json({ id, message: 'Notification créée' });
+    }
+
     await pool.execute(
       `INSERT INTO notifications (id, recipient_id, message, link, \`read\`)
        VALUES (?, ?, ?, ?, FALSE)`,
@@ -4795,10 +7032,23 @@ app.post('/api/notifications', authenticateToken, async (req, res) => {
 
 app.put('/api/notifications/mark-read', authenticateToken, async (req, res) => {
   try {
-    await pool.execute(
-      'UPDATE notifications SET `read` = TRUE WHERE recipient_id = ? AND `read` = FALSE',
-      [req.user.id]
-    );
+    if (supabase) {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('recipient_id', req.user.id)
+        .eq('read', false);
+
+      if (error) {
+        console.error('Erreur Supabase lors de la mise à jour des notifications:', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+    } else {
+      await pool.execute(
+        'UPDATE notifications SET `read` = TRUE WHERE recipient_id = ? AND `read` = FALSE',
+        [req.user.id]
+      );
+    }
     res.json({ message: 'Notifications marquées comme lues' });
   } catch (error) {
     console.error('Erreur lors de la mise à jour des notifications:', error);
@@ -4813,8 +7063,25 @@ app.delete('/api/notifications', authenticateToken, async (req, res) => {
     if (!recipientId) {
       return res.status(401).json({ error: 'Utilisateur non authentifié' });
     }
-    const [result] = await pool.execute('DELETE FROM notifications WHERE recipient_id = ?', [recipientId]);
-    const deleted = result?.affectedRows ?? 0;
+    let deleted = 0;
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('recipient_id', recipientId)
+        .select('id');
+
+      if (error) {
+        console.error('Erreur Supabase lors de la suppression des notifications:', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      deleted = data ? data.length : 0;
+    } else {
+      const [result] = await pool.execute('DELETE FROM notifications WHERE recipient_id = ?', [recipientId]);
+      deleted = result?.affectedRows ?? 0;
+    }
     res.json({ message: 'Notifications supprimées', deleted });
   } catch (error) {
     console.error('Erreur lors de la suppression des notifications:', error);
@@ -4826,6 +7093,26 @@ app.delete('/api/notifications', authenticateToken, async (req, res) => {
 app.put('/api/notifications/:id/mark-read', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id)
+        .eq('recipient_id', req.user.id)
+        .select('id');
+
+      if (error) {
+        console.error('Erreur Supabase lors de la mise à jour de la notification:', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (!data || data.length === 0) {
+        return res.status(404).json({ error: 'Notification non trouvée' });
+      }
+
+      return res.json({ message: 'Notification marquée comme lue' });
+    }
+
     const [result] = await pool.execute(
       'UPDATE notifications SET `read` = TRUE WHERE id = ? AND recipient_id = ?',
       [id, req.user.id]
@@ -4845,12 +7132,54 @@ app.put('/api/notifications/:id/mark-read', authenticateToken, async (req, res) 
 // Route pour vérifier que le superadmin existe
 app.post('/api/ensure-superadmin', async (req, res) => {
   try {
+    // Branche Supabase principale
+    if (supabase) {
+      const { data: admins, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'superadmin')
+        .limit(1);
+
+      if (error) {
+        console.error('Erreur Supabase lors de la vérification du superadmin:', error.message);
+        return res.status(500).json({ error: 'Erreur serveur' });
+      }
+
+      if (!admins || admins.length === 0) {
+        const id = uuidv4();
+        const passwordHash = await bcrypt.hash('admin123', 10);
+
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id,
+            username: 'superadmin',
+            email: 'admin@hospital.com',
+            password_hash: passwordHash,
+            first_name: 'Super',
+            last_name: 'Admin',
+            civility: 'M.',
+            role: 'superadmin',
+            service: 'Administration'
+          });
+
+        if (insertError) {
+          console.error('Erreur Supabase lors de la création du superadmin:', insertError.message);
+          return res.status(500).json({ error: 'Erreur serveur' });
+        }
+
+        return res.json({ success: true, message: 'Superadmin créé' });
+      }
+
+      return res.json({ success: true, message: 'Superadmin existe déjà' });
+    }
+
+    // Fallback MySQL si Supabase non disponible
     const [admins] = await pool.execute(
       "SELECT * FROM profiles WHERE role = 'superadmin'"
     );
 
     if (admins.length === 0) {
-      // Créer un superadmin par défaut
       const id = uuidv4();
       const passwordHash = await bcrypt.hash('admin123', 10);
 

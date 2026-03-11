@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Icon } from "@/components/Icon";
 import { Visitor, Doctor, Users } from "@/types";
@@ -26,6 +26,12 @@ const AddVisitorForm = ({ onAddVisitor, onClose, users, doctors }: AddVisitorFor
   const [destination, setDestination] = useState('');
   const [personToSee, setPersonToSee] = useState('');
   const [otherPersonToSee, setOtherPersonToSee] = useState('');
+  const [company, setCompany] = useState('');
+  const [visitType, setVisitType] = useState('');
+  const [badgeCode, setBadgeCode] = useState('');
+  const [entrySignature, setEntrySignature] = useState('');
+  const [observations, setObservations] = useState('');
+  const [idVerified, setIdVerified] = useState<boolean | undefined>(undefined);
 
   const staffList = [
     ...doctors.map(d => ({ value: d.name, label: `${d.name} (${d.specialty})` })),
@@ -45,14 +51,21 @@ const AddVisitorForm = ({ onAddVisitor, onClose, users, doctors }: AddVisitorFor
       reason,
       destination,
       person_to_see: finalPersonToSee,
+      company: company || undefined,
+      visit_type: visitType || undefined,
+      badge_code: badgeCode || undefined,
+      entry_signature: entrySignature || undefined,
+      access_observations: observations || undefined,
+      id_verified: idVerified,
     });
     onClose();
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <Input placeholder="Nom complet du visiteur" value={fullName} onChange={e => setFullName(e.target.value)} required />
-      <Input placeholder="Numéro de pièce d'identité" value={idDocument} onChange={e => setIdDocument(e.target.value)} required />
+      <Input placeholder="Nom et Prénom" value={fullName} onChange={e => setFullName(e.target.value)} required />
+      <Input placeholder="Numéro de la pièce d'identité" value={idDocument} onChange={e => setIdDocument(e.target.value)} required />
+      <Input placeholder="Société / Organisme" value={company} onChange={e => setCompany(e.target.value)} />
       <Select onValueChange={setReason} value={reason} required>
         <SelectTrigger>
           <SelectValue placeholder="Sélectionner le motif de la visite" />
@@ -61,9 +74,14 @@ const AddVisitorForm = ({ onAddVisitor, onClose, users, doctors }: AddVisitorFor
           {visitReasons.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
         </SelectContent>
       </Select>
+      <Input
+        placeholder="Type (Visiteur, Prestataire, Intervenant...)"
+        value={visitType}
+        onChange={e => setVisitType(e.target.value)}
+      />
       <Select onValueChange={setDestination} value={destination} required>
         <SelectTrigger>
-          <SelectValue placeholder="Sélectionner la destination" />
+          <SelectValue placeholder="Sélectionner le service / la destination" />
         </SelectTrigger>
         <SelectContent>
           {visitorDestinations.map(group => (
@@ -78,11 +96,11 @@ const AddVisitorForm = ({ onAddVisitor, onClose, users, doctors }: AddVisitorFor
       </Select>
       <Select onValueChange={setPersonToSee} value={personToSee} required>
         <SelectTrigger>
-          <SelectValue placeholder="Personne à rencontrer" />
+          <SelectValue placeholder="Service / Personne visitée" />
         </SelectTrigger>
         <SelectContent>
-          {staffList.map(staff => (
-            <SelectItem key={staff.value} value={staff.value}>{staff.label}</SelectItem>
+          {staffList.map((staff, index) => (
+            <SelectItem key={`${staff.value}-${index}`} value={staff.value}>{staff.label}</SelectItem>
           ))}
           <SelectItem value="__autre__">Autre...</SelectItem>
         </SelectContent>
@@ -95,6 +113,29 @@ const AddVisitorForm = ({ onAddVisitor, onClose, users, doctors }: AddVisitorFor
           required
         />
       )}
+      <div className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={!!idVerified}
+          onChange={e => setIdVerified(e.target.checked)}
+        />
+        <span>Pièce d'identité vérifiée</span>
+      </div>
+      <Input
+        placeholder="Code du badge remis"
+        value={badgeCode}
+        onChange={e => setBadgeCode(e.target.value)}
+      />
+      <Input
+        placeholder="Signature entrée"
+        value={entrySignature}
+        onChange={e => setEntrySignature(e.target.value)}
+      />
+      <Input
+        placeholder="Observations"
+        value={observations}
+        onChange={e => setObservations(e.target.value)}
+      />
       <Button type="submit" className="w-full">Enregistrer l'entrée</Button>
     </form>
   );
@@ -126,6 +167,7 @@ export const VisitorLog = ({ visitors, onAddVisitor, onSignOutVisitor, onDeleteV
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Enregistrer un nouveau visiteur</DialogTitle>
+              <DialogDescription>Renseignez les informations du nouveau visiteur entrant.</DialogDescription>
             </DialogHeader>
             <AddVisitorForm onAddVisitor={onAddVisitor} onClose={() => setIsDialogOpen(false)} users={users} doctors={doctors} />
           </DialogContent>
@@ -135,27 +177,56 @@ export const VisitorLog = ({ visitors, onAddVisitor, onSignOutVisitor, onDeleteV
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nom</TableHead>
-              <TableHead>Pièce d'identité</TableHead>
-              <TableHead>Motif</TableHead>
-              <TableHead>Destination</TableHead>
-              <TableHead>Personne à voir</TableHead>
+              <TableHead>N°</TableHead>
+              <TableHead>Date</TableHead>
               <TableHead>Heure d'entrée</TableHead>
+              <TableHead>Nom et Prénom</TableHead>
+              <TableHead>Société / Organisme</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Service / Personne visitée</TableHead>
+              <TableHead>Motif de la visite</TableHead>
+              <TableHead>Pièce d'identité vérifiée ?</TableHead>
+              <TableHead>Numéro de la pièce</TableHead>
+              <TableHead>Code du badge remis</TableHead>
+              <TableHead>Signature entrée</TableHead>
               <TableHead>Heure de sortie</TableHead>
+              <TableHead>Signature sortie</TableHead>
+              <TableHead>Observations</TableHead>
+              <TableHead>Agent de sécurité</TableHead>
               <TableHead>Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visitors.map(visitor => (
-              <TableRow key={visitor.id}>
-                <TableCell>{visitor.full_name}</TableCell>
-                <TableCell>{visitor.id_document}</TableCell>
-                <TableCell>{visitor.reason}</TableCell>
-                <TableCell>{visitor.destination}</TableCell>
-                <TableCell>{visitor.person_to_see}</TableCell>
-                <TableCell>{format(visitor.entry_time, 'Pp', { locale: fr })}</TableCell>
-                <TableCell>{visitor.exit_time ? format(visitor.exit_time, 'Pp', { locale: fr }) : 'En visite'}</TableCell>
-                <TableCell className="space-x-2">
+            {visitors.map((visitor, index) => {
+              const agent = Object.values(users).find(u => u.id === visitor.registered_by);
+              const entryDate = visitor.entry_time ? new Date(visitor.entry_time) : null;
+              const exitDate = visitor.exit_time ? new Date(visitor.exit_time) : null;
+
+              return (
+                <TableRow key={visitor.id}>
+                  <TableCell>{index + 1}</TableCell>
+                  <TableCell>{entryDate ? format(entryDate, 'dd/MM/yyyy', { locale: fr }) : '-'}</TableCell>
+                  <TableCell>{entryDate ? format(entryDate, 'HH:mm', { locale: fr }) : '-'}</TableCell>
+                  <TableCell>{visitor.full_name}</TableCell>
+                  <TableCell>{visitor.company || '-'}</TableCell>
+                  <TableCell>{visitor.visit_type || 'Visiteur'}</TableCell>
+                  <TableCell>{visitor.person_to_see || visitor.destination || '-'}</TableCell>
+                  <TableCell>{visitor.reason}</TableCell>
+                  <TableCell>
+                    {visitor.id_verified !== undefined
+                      ? visitor.id_verified ? 'Oui' : 'Non'
+                      : visitor.id_document ? 'Oui' : 'Non'}
+                  </TableCell>
+                  <TableCell>{visitor.id_document}</TableCell>
+                  <TableCell>{visitor.badge_code || '-'}</TableCell>
+                  <TableCell>{visitor.entry_signature || '-'}</TableCell>
+                  <TableCell>{exitDate ? format(exitDate, 'HH:mm', { locale: fr }) : '-'}</TableCell>
+                  <TableCell>{visitor.exit_signature || '-'}</TableCell>
+                  <TableCell>{visitor.access_observations || '-'}</TableCell>
+                  <TableCell>
+                    {agent ? `${agent.first_name} ${agent.last_name}` : '-'}
+                  </TableCell>
+                  <TableCell className="space-x-2">
                   <Button
                     size="sm"
                     onClick={() => onSignOutVisitor(visitor.id)}
@@ -176,8 +247,9 @@ export const VisitorLog = ({ visitors, onAddVisitor, onSignOutVisitor, onDeleteV
                     </Button>
                   )}
                 </TableCell>
-              </TableRow>
-            ))}
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </CardContent>

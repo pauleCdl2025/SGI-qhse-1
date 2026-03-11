@@ -159,7 +159,7 @@ const validateIncident = (req, res, next) => {
 
 // Middleware de validation pour les visiteurs
 const validateVisitor = (req, res, next) => {
-  const { full_name, id_document, reason, destination } = req.body;
+  const { full_name, id_document, reason, destination, person_to_see, company, visit_type, badge_code, entry_signature, access_observations } = req.body;
 
   if (!full_name || full_name.trim().length < 2) {
     return res.status(400).json({ error: 'Le nom complet est requis (minimum 2 caractères)' });
@@ -174,6 +174,12 @@ const validateVisitor = (req, res, next) => {
   req.body.id_document = sanitizeInput(id_document);
   if (reason) req.body.reason = sanitizeInput(reason);
   if (destination) req.body.destination = sanitizeInput(destination);
+  if (person_to_see) req.body.person_to_see = sanitizeInput(person_to_see);
+  if (company) req.body.company = sanitizeInput(company);
+  if (visit_type) req.body.visit_type = sanitizeInput(visit_type);
+  if (badge_code) req.body.badge_code = sanitizeInput(badge_code);
+  if (entry_signature) req.body.entry_signature = sanitizeInput(entry_signature);
+  if (access_observations) req.body.access_observations = sanitizeInput(access_observations);
 
   next();
 };

@@ -213,44 +213,90 @@ export const AgentSecuritePortal = ({ user, incidents, visitors, plannedTasks, n
             </div>
           </CardContent>
         </Card>
-
-        <Card className="card-hover">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Icon name="Info" className="text-cyan-600 mr-2" />
-              Informations Importantes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats.urgent > 0 && (
-                <div className="p-3 bg-red-50 border-l-4 border-red-500 rounded">
-                  <div className="flex items-center">
-                    <Icon name="AlertTriangle" className="text-red-600 mr-2" />
-                    <span className="font-semibold text-red-900">{stats.urgent} incident(s) urgent(s)</span>
-                  </div>
-                </div>
-              )}
-              {stats.inProgress > 0 && (
-                <div className="p-3 bg-yellow-50 border-l-4 border-yellow-500 rounded">
-                  <div className="flex items-center">
-                    <Icon name="Clock" className="text-yellow-600 mr-2" />
-                    <span className="font-semibold text-yellow-900">{stats.inProgress} incident(s) en cours</span>
-                  </div>
-                </div>
-              )}
-              {stats.myTasks > 0 && (
-                <div className="p-3 bg-cyan-50 border-l-4 border-cyan-500 rounded">
-                  <div className="flex items-center">
-                    <Icon name="ClipboardList" className="text-cyan-600 mr-2" />
-                    <span className="font-semibold text-cyan-900">{stats.myTasks} tâche(s) assignée(s)</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </div>
+
+      {/* Gestion des accès */}
+      <Card className="card-hover">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Icon name="BadgeCheck" className="text-indigo-600" />
+            Gestion des accès
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-gray-600 mb-4">
+            Registre des accès avec suivi des badges remis et des entrées / sorties.
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs md:text-sm border border-gray-200 rounded-lg bg-white">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="px-2 py-2 border border-gray-200 text-left">N°</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Date</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Heure d&apos;entrée</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Nom et Prénom</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Société / Organisme</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Type</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Service / Personne visitée</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Motif de la visite</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Pièce d&apos;identité vérifiée ?</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Numéro de la pièce</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Code du badge remis</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Signature entrée</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Heure de sortie</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Signature sortie</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Observations</th>
+                  <th className="px-2 py-2 border border-gray-200 text-left">Agent de sécurité</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visitors.length === 0 ? (
+                  <tr>
+                    <td colSpan={16} className="px-3 py-4 text-center text-gray-500">
+                      Aucun accès enregistré pour le moment.
+                    </td>
+                  </tr>
+                ) : (
+                  visitors.map((v, index) => {
+                    const date = v.entry_time ? new Date(v.entry_time) : null;
+                    const exit = v.exit_time ? new Date(v.exit_time) : null;
+                    return (
+                      <tr key={v.id} className={index % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="px-2 py-2 border border-gray-100">{index + 1}</td>
+                        <td className="px-2 py-2 border border-gray-100">
+                          {date ? format(date, "dd/MM/yyyy") : "-"}
+                        </td>
+                        <td className="px-2 py-2 border border-gray-100">
+                          {date ? format(date, "HH:mm") : "-"}
+                        </td>
+                        <td className="px-2 py-2 border border-gray-100">{v.full_name}</td>
+                        <td className="px-2 py-2 border border-gray-100">-</td>
+                        <td className="px-2 py-2 border border-gray-100">Visiteur</td>
+                        <td className="px-2 py-2 border border-gray-100">
+                          {v.person_to_see || v.destination || "-"}
+                        </td>
+                        <td className="px-2 py-2 border border-gray-100">{v.reason || "-"}</td>
+                        <td className="px-2 py-2 border border-gray-100">{v.id_document ? "Oui" : "Non"}</td>
+                        <td className="px-2 py-2 border border-gray-100">{v.id_document || "-"}</td>
+                        <td className="px-2 py-2 border border-gray-100">-</td>
+                        <td className="px-2 py-2 border border-gray-100">-</td>
+                        <td className="px-2 py-2 border border-gray-100">
+                          {exit ? format(exit, "HH:mm") : "-"}
+                        </td>
+                        <td className="px-2 py-2 border border-gray-100">-</td>
+                        <td className="px-2 py-2 border border-gray-100">-</td>
+                        <td className="px-2 py-2 border border-gray-100">
+                          {user.first_name} {user.last_name}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <IncidentHistoryCard
         title="Mes incidents de sécurité déclarés"
