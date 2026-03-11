@@ -5,8 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { showSuccess, showError } from '@/utils/toast';
-import { apiClient } from './integrations/api/client';
+import { showSuccess } from '@/utils/toast';
 
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -37,33 +36,6 @@ const App = () => {
   const { rooms, setRooms, bookings, setBookings, doctors, setDoctors, addBooking, updateBooking, deleteBooking, expiringBookingIds, preExpiringBookingIds, startBooking, endBooking } = useBookings({ currentUser, users, addNotification });
   const { plannedTasks, setPlannedTasks, addPlannedTask, updatePlannedTaskStatus, deletePlannedTask } = usePlannedTasks({ currentUser, users, addNotification });
   const { addUser, deleteUser, updateUserPermissions } = useUserManagement({ setUsers, fetchAllProfiles }); // Pass fetchAllProfiles
-
-  // Effect to ensure Superadmin exists via API
-  useEffect(() => {
-    const ensureSuperadmin = async () => {
-      const token = localStorage.getItem('auth_token');
-      if (!token) { // Only run if no user is currently logged in
-        console.log("App.tsx: Invoking ensure-superadmin API...");
-        try {
-          const data = await apiClient.ensureSuperadmin();
-
-          if (data && !data.success) {
-            console.error("App.tsx: ensure-superadmin API reported failure:", data.message);
-            showError(`Échec de l'initialisation du Super Admin: ${data.message}`);
-          } else {
-            console.log("App.tsx: ensure-superadmin API completed successfully.");
-            // Don't fetch profiles here - wait for user login
-            // fetchAllProfiles() will be called after successful login
-          }
-        } catch (error: any) {
-          console.error("App.tsx: Error invoking ensure-superadmin API:", error.message);
-          showError(`Erreur lors de l'initialisation du Super Admin: ${error.message}`);
-        }
-      }
-    };
-
-    ensureSuperadmin();
-  }, []); // Remove fetchAllProfiles from dependency array
 
   const handleResetData = async () => {
     // This function will need to be updated to clear data from Supabase
