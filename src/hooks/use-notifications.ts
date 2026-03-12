@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Notification } from '@/types';
-import { apiClient } from '@/integrations/api/client';
 import { showError, showSuccess } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 // Fonction pour jouer un son de notification
 const playNotificationSound = () => {
@@ -55,22 +55,31 @@ export const useNotifications = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const previousNotificationsRef = useRef<Set<string>>(new Set());
 
-  // Fetch notifications from API
+  // Fetch notifications from Supabase
   useEffect(() => {
     const fetchNotifications = async () => {
-      // Vérifier si l'utilisateur est connecté avant de faire la requête
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
-        // Pas de token, pas de notifications
-        setNotifications([]);
-        return;
-      }
-
-      // Vérifier aussi que le token est défini dans le client API
-      apiClient.setToken(token);
-
       try {
-        const data = await apiClient.getNotifications();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          setNotifications([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('recipient_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error("Error fetching notifications from Supabase:", error.message);
+          return;
+        }
+
         const fetchedNotifications: Notification[] = data.map((item: any) => ({
           id: item.id,
           recipient_id: item.recipient_id,
@@ -96,10 +105,7 @@ export const useNotifications = () => {
         
         setNotifications(fetchedNotifications);
       } catch (error: any) {
-        // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
-        if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching notifications:", error.message);
-        }
+        console.error("Error fetching notifications:", error.message);
       }
     };
 
@@ -111,7 +117,18 @@ export const useNotifications = () => {
 
   const addNotification = async (recipientId: string, message: string, link?: string) => {
     try {
-      await apiClient.createNotification({ recipient_id: recipientId, message, link });
+      const { error } = await supabase
+        .from('notifications')
+        .insert({
+          recipient_id: recipientId,
+          message,
+          link: link || null,
+          read: false,
+        });
+
+      if (error) {
+        throw new Error(error.message);
+      }
     } catch (error: any) {
       console.error("Error adding notification:", error.message);
       // Don't show error to user for notifications, just log
@@ -120,7 +137,16 @@ export const useNotifications = () => {
 
   const markNotificationsAsRead = async (userId: string) => {
     try {
-      await apiClient.markNotificationsAsRead();
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('recipient_id', userId)
+        .eq('read', false);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
       // Mettre à jour l'état local pour marquer toutes les notifications non lues comme lues
       setNotifications(prev => 
         prev.map(notification => 
@@ -137,7 +163,15 @@ export const useNotifications = () => {
 
   const markNotificationAsRead = async (notificationId: string) => {
     try {
-      await apiClient.markNotificationAsRead(notificationId);
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', notificationId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
       // Mettre à jour l'état local pour marquer cette notification comme lue
       setNotifications(prev => 
         prev.map(notification => 
@@ -153,7 +187,24 @@ export const useNotifications = () => {
 
   const deleteAllNotifications = async () => {
     try {
-      await apiClient.deleteAllNotifications();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error(userError?.message || 'Utilisateur non connecté');
+      }
+
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('recipient_id', user.id);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
       setNotifications([]);
       showSuccess("Notifications supprimées.");
     } catch (error: any) {

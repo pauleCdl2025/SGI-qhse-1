@@ -5,7 +5,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { QHSEDocument, DocumentType, DocumentStatus, User } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError, showWarning, showInfo } from "@/utils/toast";
 import { differenceInCalendarDays, format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -15,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { supabase } from "@/integrations/supabase/client";
 import { DOCUMENT_TYPES, PROCESSUS_CODES, PROCESSUS_BY_CATEGORY, generateDocumentCode } from "@/lib/document-coding";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import html2canvas from "html2canvas";
@@ -191,7 +191,14 @@ export const QHSEDocumentsList = ({ currentUser }: QHSEDocumentsListProps) => {
   const fetchDocuments = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getQHSEDocuments();
+      const { data, error } = await supabase
+        .from('qhse_documents')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
       setDocuments(data.map((doc: any) => ({
         ...doc,
         created_at: new Date(doc.created_at),
@@ -213,7 +220,16 @@ export const QHSEDocumentsList = ({ currentUser }: QHSEDocumentsListProps) => {
 
   const handleCreateDocument = async (formData: FormData) => {
     try {
-      await apiClient.createQHSEDocument(formData);
+      const plain: any = {};
+      formData.forEach((value, key) => {
+        plain[key] = value;
+      });
+
+      const { error } = await supabase.from('qhse_documents').insert([plain]);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Document créé avec succès");
       setIsDialogOpen(false);
       fetchDocuments();
@@ -224,7 +240,14 @@ export const QHSEDocumentsList = ({ currentUser }: QHSEDocumentsListProps) => {
 
   const handleUpdateStatus = async (id: string, status: DocumentStatus) => {
     try {
-      await apiClient.updateQHSEDocument(id, { status });
+      const { error } = await supabase
+        .from('qhse_documents')
+        .update({ status })
+        .eq('id', id);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Statut mis à jour");
       fetchDocuments();
     } catch (error: any) {
@@ -239,7 +262,14 @@ export const QHSEDocumentsList = ({ currentUser }: QHSEDocumentsListProps) => {
     }
 
     try {
-      await apiClient.updateQHSEDocument(id, { status: 'validé' });
+      const { error } = await supabase
+        .from('qhse_documents')
+        .update({ status: 'validé' })
+        .eq('id', id);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Document validé avec succès");
       fetchDocuments();
     } catch (error: any) {

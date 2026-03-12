@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Booking, Room, Doctor, User, Users, BookingStatus } from '@/types';
-import { apiClient } from '@/integrations/api/client';
 import { showError, showSuccess } from '@/utils/toast';
 import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
 
 const NOTIFICATION_LEAD_TIME_MINUTES = 15;
 const EXPIRED_HIGHLIGHT_MINUTES = 15;
@@ -25,18 +25,26 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
   // Fetch rooms from API
   useEffect(() => {
     const fetchRooms = async () => {
-      // Vérifier si l'utilisateur est connecté avant de faire la requête
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
-        setRooms([]);
-        return;
-      }
-
-      // Vérifier aussi que le token est défini dans le client API
-      apiClient.setToken(token);
-
       try {
-        const data = await apiClient.getRooms();
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError || !user) {
+          setRooms([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('rooms')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          throw error;
+        }
+
         const fetchedRooms: Room[] = data.map((item: any) => ({
           id: item.id,
           name: item.name,
@@ -49,7 +57,7 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
       } catch (error: any) {
         // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
         if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching rooms:", error.message);
+          console.error("Error fetching rooms:", error.message || error);
           showError("Erreur lors du chargement des salles.");
         }
       }
@@ -63,18 +71,26 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
   // Fetch doctors from API
   useEffect(() => {
     const fetchDoctors = async () => {
-      // Vérifier si l'utilisateur est connecté avant de faire la requête
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
-        setDoctors([]);
-        return;
-      }
-
-      // Vérifier aussi que le token est défini dans le client API
-      apiClient.setToken(token);
-
       try {
-        const data = await apiClient.getDoctors();
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError || !user) {
+          setDoctors([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('doctors')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          throw error;
+        }
+
         const fetchedDoctors: Doctor[] = data.map((item: any) => ({
           id: item.id,
           name: item.name,
@@ -86,7 +102,7 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
       } catch (error: any) {
         // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
         if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching doctors:", error.message);
+          console.error("Error fetching doctors:", error.message || error);
           showError("Erreur lors du chargement des médecins.");
         }
       }
@@ -100,18 +116,26 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
   // Fetch bookings from API
   useEffect(() => {
     const fetchBookings = async () => {
-      // Vérifier si l'utilisateur est connecté avant de faire la requête
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
-        setBookings([]);
-        return;
-      }
-
-      // Vérifier aussi que le token est défini dans le client API
-      apiClient.setToken(token);
-
       try {
-        const data = await apiClient.getBookings();
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError || !user) {
+          setBookings([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          throw error;
+        }
+
         const fetchedBookings: Booking[] = data.map((item: any) => ({
           id: item.id,
           room_id: item.room_id,
@@ -127,7 +151,7 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
       } catch (error: any) {
         // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
         if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching bookings:", error.message);
+          console.error("Error fetching bookings:", error.message || error);
           showError("Erreur lors du chargement des réservations.");
         }
       }
@@ -220,17 +244,35 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
     }
 
     try {
-      await apiClient.createBooking({
-        room_id: booking.room_id,
-        title: booking.title,
-        start_time: booking.start_time.toISOString(),
-        end_time: booking.end_time.toISOString(),
-        doctor_id: booking.doctor_id,
-      });
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
+      }
+
+      const { error } = await supabase.from('bookings').insert([
+        {
+          room_id: booking.room_id,
+          title: booking.title,
+          booked_by: user.id,
+          start_time: booking.start_time.toISOString(),
+          end_time: booking.end_time.toISOString(),
+          doctor_id: booking.doctor_id,
+          status: 'prévu',
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess(`La salle a été réservée avec succès.`);
-      // Notification créée côté backend
     } catch (error: any) {
-      console.error("Error adding booking:", error.message);
+      console.error("Error adding booking:", error.message || error);
       showError("Erreur lors de la réservation de la salle.");
     }
   };
@@ -264,17 +306,25 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
     }
 
     try {
-      await apiClient.updateBooking(bookingId, {
-        room_id: updatedData.room_id,
-        title: updatedData.title,
-        start_time: updatedData.start_time.toISOString(),
-        end_time: updatedData.end_time.toISOString(),
-        doctor_id: updatedData.doctor_id,
-        status: updatedData.status,
-      });
+      const { error } = await supabase
+        .from('bookings')
+        .update({
+          room_id: updatedData.room_id,
+          title: updatedData.title,
+          start_time: updatedData.start_time.toISOString(),
+          end_time: updatedData.end_time.toISOString(),
+          doctor_id: updatedData.doctor_id,
+          status: updatedData.status,
+        })
+        .eq('id', bookingId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("La réservation a été modifiée avec succès.");
     } catch (error: any) {
-      console.error("Error updating booking:", error.message);
+      console.error("Error updating booking:", error.message || error);
       showError("Erreur lors de la modification de la réservation.");
     }
   };
@@ -292,10 +342,15 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
     }
 
     try {
-      await apiClient.deleteBooking(bookingId);
+      const { error } = await supabase.from('bookings').delete().eq('id', bookingId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("La réservation a été annulée.");
     } catch (error: any) {
-      console.error("Error deleting booking:", error.message);
+      console.error("Error deleting booking:", error.message || error);
       showError("Erreur lors de l'annulation de la réservation.");
     }
   };
@@ -307,11 +362,19 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
     }
 
     try {
-      await apiClient.updateBooking(bookingId, { status: 'en_cours' });
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: 'en_cours' })
+        .eq('id', bookingId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("La consultation a démarré.");
       return true;
     } catch (error: any) {
-      console.error("Error starting booking:", error.message);
+      console.error("Error starting booking:", error.message || error);
       showError("Erreur lors du démarrage de la consultation.");
       return false;
     }
@@ -319,10 +382,18 @@ export const useBookings = ({ currentUser, users, addNotification }: UseBookings
 
   const handleEndBooking = async (bookingId: string) => {
     try {
-      await apiClient.updateBooking(bookingId, { status: 'terminé' });
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: 'terminé' })
+        .eq('id', bookingId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("La consultation est terminée.");
     } catch (error: any) {
-      console.error("Error ending booking:", error.message);
+      console.error("Error ending booking:", error.message || error);
       showError("Erreur lors de la fin de la consultation.");
     }
   };

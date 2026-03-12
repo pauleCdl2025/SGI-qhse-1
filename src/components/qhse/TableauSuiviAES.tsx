@@ -7,8 +7,8 @@ import { Icon } from "@/components/Icon";
 import { AES } from "@/types";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { apiClient } from "@/integrations/api/client";
 import { showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { AESDetailsDialog } from "./AESDetailsDialog";
 
 interface TableauSuiviAESProps {
@@ -28,7 +28,15 @@ export const TableauSuiviAES = ({ currentUserId }: TableauSuiviAESProps) => {
   const fetchAES = async () => {
     try {
       setIsLoading(true);
-      const data = await apiClient.getAES();
+      const { data, error } = await supabase
+        .from('aes')
+        .select('*')
+        .order('date_aes', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       const formattedAES: AES[] = data.map((item: any) => ({
         ...item,
         date_aes: new Date(item.date_aes),

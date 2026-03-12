@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { BiomedicalEquipment, BiomedicalEquipmentStatus, MaintenanceTask, User } from '@/types';
-import { apiClient } from '@/integrations/api/client';
+import { BiomedicalEquipment, BiomedicalEquipmentStatus, MaintenanceTask } from '@/types';
 import { showSuccess, showError } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface UseBiomedicalEquipmentProps {
   addNotification: (userId: string, message: string, link?: string) => void;
@@ -14,18 +14,26 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
   // Fetch biomedical equipment from API
   useEffect(() => {
     const fetchEquipment = async () => {
-      // Vérifier si l'utilisateur est connecté avant de faire la requête
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
-        setBiomedicalEquipment([]);
-        return;
-      }
-
-      // Vérifier aussi que le token est défini dans le client API
-      apiClient.setToken(token);
-
       try {
-        const data = await apiClient.getBiomedicalEquipment();
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError || !user) {
+          setBiomedicalEquipment([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('biomedical_equipment')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          throw error;
+        }
+
         const fetchedEquipment: BiomedicalEquipment[] = data.map((item: any) => ({
           id: item.id,
           name: item.name,
@@ -43,7 +51,7 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
       } catch (error: any) {
         // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
         if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching biomedical equipment:", error.message);
+          console.error("Error fetching biomedical equipment:", error.message || error);
           showError("Erreur lors du chargement des équipements biomédicaux.");
         }
       }
@@ -58,18 +66,26 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
   // Fetch maintenance tasks from API
   useEffect(() => {
     const fetchMaintenanceTasks = async () => {
-      // Vérifier si l'utilisateur est connecté avant de faire la requête
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
-        setMaintenanceTasks([]);
-        return;
-      }
-
-      // Vérifier aussi que le token est défini dans le client API
-      apiClient.setToken(token);
-
       try {
-        const data = await apiClient.getMaintenanceTasks();
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError || !user) {
+          setMaintenanceTasks([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('maintenance_tasks')
+          .select('*')
+          .order('scheduled_date', { ascending: true });
+
+        if (error) {
+          throw error;
+        }
+
         const fetchedTasks: MaintenanceTask[] = data.map((item: any) => ({
           id: item.id,
           equipment_id: item.equipment_id,
@@ -85,7 +101,7 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
       } catch (error: any) {
         // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
         if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching maintenance tasks:", error.message);
+          console.error("Error fetching maintenance tasks:", error.message || error);
           showError("Erreur lors du chargement des tâches de maintenance.");
         }
       }
@@ -99,45 +115,71 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
 
   const addBiomedicalEquipment = async (equipment: Omit<BiomedicalEquipment, 'id' | 'status' | 'last_maintenance' | 'next_maintenance' | 'model' | 'department' | 'created_at'>) => {
     try {
-      await apiClient.createBiomedicalEquipment({
-        name: equipment.name,
-        serial_number: equipment.serial_number,
-        location: equipment.location,
-        model: 'N/A',
-        department: 'N/A',
-        notes: equipment.notes ?? null,
-      });
+      const { error } = await supabase.from('biomedical_equipment').insert([
+        {
+          name: equipment.name,
+          serial_number: equipment.serial_number,
+          location: equipment.location,
+          model: 'N/A',
+          department: 'N/A',
+          notes: equipment.notes ?? null,
+          status: 'en_service',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess(`Équipement ${equipment.name} ajouté.`);
     } catch (error: any) {
-      console.error("Error adding equipment:", error.message);
+      console.error("Error adding equipment:", error.message || error);
       showError("Erreur lors de l'ajout de l'équipement.");
     }
   };
 
   const updateBiomedicalEquipmentStatus = async (equipmentId: string, status: BiomedicalEquipmentStatus) => {
     try {
-      await apiClient.updateBiomedicalEquipmentStatus(equipmentId, status);
+      const { error } = await supabase
+        .from('biomedical_equipment')
+        .update({ status })
+        .eq('id', equipmentId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Le statut de l'équipement a été mis à jour.");
     } catch (error: any) {
-      console.error("Error updating equipment status:", error.message);
+      console.error("Error updating equipment status:", error.message || error);
       showError("Erreur lors de la mise à jour du statut de l'équipement.");
     }
   };
 
   const scheduleMaintenanceTask = async (task: Omit<MaintenanceTask, 'id' | 'status' | 'created_at'>) => {
     try {
-      await apiClient.createMaintenanceTask({
-        equipment_id: task.equipment_id,
-        type: task.type,
-        description: task.description,
-        technician_id: task.technician_id,
-        scheduled_date: task.scheduled_date.toISOString(),
-        comments: task.comments ?? null,
-      });
+      const { error } = await supabase.from('maintenance_tasks').insert([
+        {
+          equipment_id: task.equipment_id,
+          type: task.type,
+          description: task.description,
+          technician_id: task.technician_id,
+          scheduled_date: task.scheduled_date.toISOString(),
+          comments: task.comments ?? null,
+          status: 'planifiée',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess(`Tâche de maintenance planifiée.`);
       // Notification créée côté backend
     } catch (error: any) {
-      console.error("Error scheduling maintenance task:", error.message);
+      console.error("Error scheduling maintenance task:", error.message || error);
       showError("Erreur lors de la planification de la tâche de maintenance.");
     }
   };
@@ -148,7 +190,15 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
       prev.map(task => (task.id === taskId ? { ...task, status } : task))
     );
     try {
-      await apiClient.updateMaintenanceTaskStatus(taskId, status);
+      const { error } = await supabase
+        .from('maintenance_tasks')
+        .update({ status })
+        .eq('id', taskId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Statut de la tâche mis à jour.");
     } catch (error: any) {
       console.error("Error updating maintenance task status:", error.message);

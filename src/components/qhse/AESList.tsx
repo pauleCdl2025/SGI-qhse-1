@@ -7,8 +7,8 @@ import { Icon } from "@/components/Icon";
 import { AES } from "@/types";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { apiClient } from "@/integrations/api/client";
 import { showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { AESFormDialog } from "./AESFormDialog";
 import { AESDetailsDialog } from "./AESDetailsDialog";
 
@@ -31,7 +31,15 @@ export const AESList = ({ currentUserId }: AESListProps) => {
   const fetchAES = async () => {
     try {
       setIsLoading(true);
-      const data = await apiClient.getAES();
+      const { data, error } = await supabase
+        .from('aes')
+        .select('*')
+        .order('date_aes', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       const formattedAES: AES[] = data.map((item: any) => ({
         ...item,
         date_aes: new Date(item.date_aes),
@@ -72,7 +80,12 @@ export const AESList = ({ currentUserId }: AESListProps) => {
       return;
     }
     try {
-      await apiClient.deleteAES(id);
+      const { error } = await supabase.from('aes').delete().eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       await fetchAES();
     } catch (error: any) {
       console.error("Error deleting AES:", error);

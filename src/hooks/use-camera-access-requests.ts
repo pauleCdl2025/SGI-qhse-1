@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CameraAccessRequest } from '@/types';
-import { apiClient } from '@/integrations/api/client';
 import { showError } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export const useCameraAccessRequests = () => {
   const [requests, setRequests] = useState<CameraAccessRequest[]>([]);
@@ -10,18 +10,28 @@ export const useCameraAccessRequests = () => {
   // Fetch camera access requests from API
   useEffect(() => {
     const fetchRequests = async () => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
-        setRequests([]);
-        setIsLoading(false);
-        return;
-      }
-
-      apiClient.setToken(token);
-
       try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError || !user) {
+          setRequests([]);
+          setIsLoading(false);
+          return;
+        }
+
         setIsLoading(true);
-        const data = await apiClient.getCameraAccessRequests();
+        const { data, error } = await supabase
+          .from('camera_access_requests')
+          .select('*')
+          .order('request_date', { ascending: false });
+
+        if (error) {
+          throw error;
+        }
+
         const fetchedRequests: CameraAccessRequest[] = data.map((item: any) => ({
           id: item.id,
           requester_id: item.requester_id,
@@ -45,7 +55,7 @@ export const useCameraAccessRequests = () => {
         setRequests(fetchedRequests);
       } catch (error: any) {
         if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching camera access requests:", error.message);
+          console.error("Error fetching camera access requests:", error.message || error);
           showError("Erreur lors du chargement des demandes d'accès aux caméras.");
         }
       } finally {
@@ -60,13 +70,25 @@ export const useCameraAccessRequests = () => {
   }, []);
 
   const refreshRequests = async () => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    if (!token) return;
-
-    apiClient.setToken(token);
-
     try {
-      const data = await apiClient.getCameraAccessRequests();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('camera_access_requests')
+        .select('*')
+        .order('request_date', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       const fetchedRequests: CameraAccessRequest[] = data.map((item: any) => ({
         id: item.id,
         requester_id: item.requester_id,

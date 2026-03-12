@@ -5,7 +5,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { Work, WorkType, WorkStatus, Users } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format, isBefore, differenceInDays } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,6 +16,7 @@ import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
 import { exportToExcel } from "@/utils/excelExport";
 import { DashboardCard } from "@/components/shared/DashboardCard";
+import { supabase } from "@/integrations/supabase/client";
 
 const workTypeLabels: Record<WorkType, string> = {
   maintenance: "Maintenance",
@@ -114,7 +114,15 @@ export const WorksList = ({ users }: WorksListProps = {}) => {
   const fetchWorks = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getWorks();
+      const { data, error } = await supabase
+        .from('works')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       setWorks(data.map((work: any) => ({
         ...work,
         planned_start_date: work.planned_start_date ? new Date(work.planned_start_date) : undefined,
@@ -134,7 +142,12 @@ export const WorksList = ({ users }: WorksListProps = {}) => {
 
   const handleCreateWork = async (workData: any) => {
     try {
-      await apiClient.createWork(workData);
+      const { error } = await supabase.from('works').insert([workData]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Travail créé avec succès");
       setIsDialogOpen(false);
       fetchWorks();
@@ -145,7 +158,15 @@ export const WorksList = ({ users }: WorksListProps = {}) => {
 
   const handleUpdateWork = async (id: string, workData: any) => {
     try {
-      await apiClient.updateWork(id, workData);
+      const { error } = await supabase
+        .from('works')
+        .update(workData)
+        .eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Travail mis à jour avec succès");
       setIsDetailsDialogOpen(false);
       setSelectedWork(null);
@@ -158,7 +179,12 @@ export const WorksList = ({ users }: WorksListProps = {}) => {
   const handleDeleteWork = async (id: string) => {
     if (!confirm("Êtes-vous sûr de vouloir supprimer ce travail ?")) return;
     try {
-      await apiClient.deleteWork(id);
+      const { error } = await supabase.from('works').delete().eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Travail supprimé");
       fetchWorks();
     } catch (error: any) {

@@ -9,7 +9,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Icon } from "@/components/Icon";
 import { CameraAccessRequest, User } from "@/types";
 import { showError, showSuccess } from "@/utils/toast";
-import { apiClient } from "@/integrations/api/client";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CameraAccessRequestFormProps {
   user: User;
@@ -146,21 +146,26 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
         requester_id: user.id,
         requester_name: requesterName,
         requester_service: requesterService,
-        // request_date sera géré par le backend avec l'heure actuelle
+        request_date: new Date().toISOString(),
         access_reason: accessReason,
-        access_start_date: startDate,
-        access_end_date: endDate,
-        access_start_time: accessStartTime || undefined,
-        access_end_time: accessEndTime || undefined,
-        camera_zones: cameraZones || undefined,
-        hierarchical_authorization: hierarchicalAuthorization || undefined,
-        notes: notes || undefined,
-        qhse_validation: qhseValidation || undefined,
-        qhse_validation_date: qhseValidationDate ? new Date(qhseValidationDate) : undefined,
-        requester_signature: requesterSignature || undefined,
+        access_start_date: startDate.toISOString().split('T')[0],
+        access_end_date: endDate.toISOString().split('T')[0],
+        access_start_time: accessStartTime || null,
+        access_end_time: accessEndTime || null,
+        camera_zones: cameraZones || null,
+        hierarchical_authorization: hierarchicalAuthorization || null,
+        notes: notes || null,
+        qhse_validation: qhseValidation || null,
+        qhse_validation_date: qhseValidationDate ? new Date(qhseValidationDate).toISOString().split('T')[0] : null,
+        requester_signature: requesterSignature || null,
+        status: 'en_attente',
       };
 
-      await apiClient.createCameraAccessRequest(requestData);
+      const { error } = await supabase.from('camera_access_requests').insert([requestData]);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Demande d'accès aux caméras soumise avec succès.");
       
       // Reset form

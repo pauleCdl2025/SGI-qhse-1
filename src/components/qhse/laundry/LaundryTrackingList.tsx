@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -19,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { User, UserRole } from "@/types";
 import { canManageLaundry } from "@/lib/permissions";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { supabase } from "@/integrations/supabase/client";
 
 const statusLabels: Record<string, string> = {
   en_reception: "En réception",
@@ -84,8 +84,26 @@ export const LaundryTrackingList = ({ currentUser }: LaundryTrackingListProps) =
   const fetchTrackings = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getLaundryTracking();
-      setTrackings(data);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        setTrackings([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('laundry_tracking')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      setTrackings(data || []);
     } catch (error: any) {
       console.error("Error fetching laundry tracking:", error);
       showError("Erreur lors du chargement des suivis de linge.");
@@ -96,7 +114,27 @@ export const LaundryTrackingList = ({ currentUser }: LaundryTrackingListProps) =
 
   const handleCreateTracking = async (formData: any) => {
     try {
-      await apiClient.createLaundryTracking(formData);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
+      }
+
+      const { error } = await supabase.from('laundry_tracking').insert([
+        {
+          ...formData,
+          created_by: user.id,
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Suivi de linge créé avec succès");
       setIsDialogOpen(false);
       fetchTrackings();
@@ -107,7 +145,15 @@ export const LaundryTrackingList = ({ currentUser }: LaundryTrackingListProps) =
 
   const handleUpdateTracking = async (id: string, formData: any) => {
     try {
-      await apiClient.updateLaundryTracking(id, formData);
+      const { error } = await supabase
+        .from('laundry_tracking')
+        .update(formData)
+        .eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Suivi de linge mis à jour avec succès");
       setIsDialogOpen(false);
       setSelectedTracking(null);
@@ -124,7 +170,12 @@ export const LaundryTrackingList = ({ currentUser }: LaundryTrackingListProps) =
 
   const handleDelete = async (id: string) => {
     try {
-      await apiClient.deleteLaundryTracking(id);
+      const { error } = await supabase.from('laundry_tracking').delete().eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Suivi de linge supprimé avec succès");
       fetchTrackings();
     } catch (error: any) {

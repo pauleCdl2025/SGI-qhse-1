@@ -5,7 +5,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { MedicalWaste, WasteType, WasteStatus, WasteUnit } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -15,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { supabase } from "@/integrations/supabase/client";
 import { ImageUpload } from "@/components/shared/ImageUpload";
 
 const wasteTypeLabels: Record<WasteType, string> = {
@@ -79,7 +79,15 @@ export const MedicalWasteList = () => {
   const fetchWaste = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getMedicalWaste();
+      const { data, error } = await supabase
+        .from('medical_waste')
+        .select('*')
+        .order('collection_date', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       setWaste(data.map((w: any) => {
         const photoUrls = w.photo_urls ? (Array.isArray(w.photo_urls) ? w.photo_urls : JSON.parse(w.photo_urls)) : [];
         return {
@@ -105,8 +113,22 @@ export const MedicalWasteList = () => {
       // Upload des photos si elles existent
       if (photoFiles.length > 0) {
         try {
-          const uploadResult = await apiClient.uploadWasteImages(photoFiles);
-          photoUrls = uploadResult.urls || [];
+          // TODO: remplacer par Supabase Storage si besoin
+          const uploadResult = await supabase
+            .storage
+            .from('medical-waste')
+            .upload(`waste/${Date.now()}-${photoFiles[0].name}`, photoFiles[0]);
+
+          if (uploadResult.error) {
+            throw uploadResult.error;
+          }
+
+          const { data: publicUrlData } = supabase
+            .storage
+            .from('medical-waste')
+            .getPublicUrl(uploadResult.data.path);
+
+          photoUrls = publicUrlData?.publicUrl ? [publicUrlData.publicUrl] : [];
         } catch (uploadError: any) {
           showError("Erreur lors de l'upload des photos: " + uploadError.message);
           return;
@@ -114,10 +136,16 @@ export const MedicalWasteList = () => {
       }
       
       // Créer le déchet avec les URLs des photos
-      await apiClient.createMedicalWaste({
-        ...wasteData,
-        photo_urls: photoUrls,
-      });
+      const { error } = await supabase.from('medical_waste').insert([
+        {
+          ...wasteData,
+          photo_urls: photoUrls,
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Déchet enregistré avec succès");
       setIsDialogOpen(false);
       fetchWaste();
@@ -133,7 +161,14 @@ export const MedicalWasteList = () => {
 
   const handleUpdateWaste = async (wasteId: string, data: any) => {
     try {
-      await apiClient.updateMedicalWaste(wasteId, data);
+      const { error } = await supabase
+        .from('medical_waste')
+        .update(data)
+        .eq('id', wasteId);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Déchet mis à jour avec succès");
       setIsDetailsDialogOpen(false);
       fetchWaste();
@@ -147,7 +182,11 @@ export const MedicalWasteList = () => {
       return;
     }
     try {
-      await apiClient.deleteMedicalWaste(wasteId);
+      const { error } = await supabase.from('medical_waste').delete().eq('id', wasteId);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Déchet supprimé avec succès");
       setIsDetailsDialogOpen(false);
       fetchWaste();

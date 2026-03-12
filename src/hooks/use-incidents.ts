@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Incident, IncidentStatus, InterventionReport, IncidentPriority, Users, User } from '@/types';
-import { apiClient } from '@/integrations/api/client';
 import { showSuccess, showError } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface UseIncidentsProps {
   currentUser: { username: string; details: User } | null;
@@ -16,17 +16,26 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
   useEffect(() => {
     const fetchIncidents = async () => {
       // Vérifier si l'utilisateur est connecté avant de faire la requête
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
         setIncidents([]);
         return;
       }
 
-      // Vérifier aussi que le token est défini dans le client API
-      apiClient.setToken(token);
-
       try {
-        const data = await apiClient.getIncidents();
+        const { data, error } = await supabase
+          .from('incidents')
+          .select('*')
+          .order('date_creation', { ascending: false });
+
+        if (error) {
+          throw error;
+        }
+
         const fetchedIncidents: Incident[] = data.map((item: any) => {
           // Debug: vérifier la priorité reçue
           let rawPriorite = item.priorite;
@@ -65,7 +74,7 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
       } catch (error: any) {
         // Ne pas afficher d'erreur si c'est juste une erreur d'authentification
         if (error.status !== 401 && error.status !== 403) {
-          console.error("Error fetching incidents:", error.message);
+          console.error("Error fetching incidents:", error.message || error);
           showError("Erreur lors du chargement des incidents.");
         }
       }
@@ -81,11 +90,30 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
     if (!files || files.length === 0) return [];
 
     try {
-      const { urls } = await apiClient.uploadImages(files);
-      return urls;
+      const uploadedUrls: string[] = [];
+
+      for (const file of files) {
+        const result = await supabase.storage
+          .from('incidents')
+          .upload(`incidents/${Date.now()}-${file.name}`, file);
+
+        if (result.error) {
+          throw result.error;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('incidents')
+          .getPublicUrl(result.data.path);
+
+        if (publicUrlData?.publicUrl) {
+          uploadedUrls.push(publicUrlData.publicUrl);
+        }
+      }
+
+      return uploadedUrls;
     } catch (error: any) {
-      console.error("Error uploading images:", error.message);
-      showError(`Erreur lors du téléchargement des images: ${error.message}`);
+      console.error("Error uploading images:", error.message || error);
+      showError(`Erreur lors du téléchargement des images: ${error.message || error}`);
       return [];
     }
   };
@@ -115,16 +143,42 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
       console.log('Frontend - Incident à envoyer:', { ...newIncident, priorite: prioriteToSend, photo_urls });
       console.log('Frontend - Priorité originale:', newIncident.priorite, 'normalisée:', prioriteToSend);
       
-      await apiClient.createIncident({
-        ...newIncident,
-        priorite: prioriteToSend,
-        photo_urls,
-      });
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
+      }
+
+      const { error } = await supabase.from('incidents').insert([
+        {
+          type: newIncident.type,
+          description: newIncident.description,
+          date_creation: new Date().toISOString(),
+          reported_by: user.id,
+          statut: 'nouveau',
+          priorite: prioriteToSend,
+          service: newIncident.service,
+          lieu: newIncident.lieu,
+          photo_urls,
+          assigned_to: newIncident.assigned_to || null,
+          assigned_to_name: newIncident.assigned_to_name || null,
+          prestataire: newIncident.prestataire || null,
+          deadline: newIncident.deadline ? newIncident.deadline.toISOString() : null,
+          report: newIncident.report || null,
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
 
       showSuccess("L'incident a été signalé avec succès.");
-      // Notification créée côté backend
     } catch (error: any) {
-      console.error("Error adding incident:", error.message);
+      console.error("Error adding incident:", error.message || error);
       showError("Erreur lors de l'ajout de l'incident.");
     }
   };
@@ -143,12 +197,18 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
         )
       );
 
-      await apiClient.updateIncident(incidentId, { statut: newStatus });
-      showSuccess(`Le statut du ticket a été mis à jour.`);
+      const { error } = await supabase
+        .from('incidents')
+        .update({ statut: newStatus })
+        .eq('id', incidentId);
 
-      // Notifications créées côté backend
+      if (error) {
+        throw error;
+      }
+
+      showSuccess(`Le statut du ticket a été mis à jour.`);
     } catch (error: any) {
-      console.error("Error updating incident status:", error.message);
+      console.error("Error updating incident status:", error.message || error);
       showError("Erreur lors de la mise à jour du statut de l'incident.");
       setIncidents(previousIncidents);
     }
@@ -158,10 +218,15 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
     const previousIncidents = incidents;
     setIncidents(prev => prev.filter(incident => incident.id !== incidentId));
     try {
-      await apiClient.deleteIncident(incidentId);
+      const { error } = await supabase.from('incidents').delete().eq('id', incidentId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Le ticket a été supprimé.");
     } catch (error: any) {
-      console.error("Error deleting incident:", error.message);
+      console.error("Error deleting incident:", error.message || error);
       showError("Erreur lors de la suppression du ticket.");
       setIncidents(previousIncidents);
     }
@@ -180,11 +245,21 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
         technician_name: `${currentUser.details.first_name} ${currentUser.details.last_name}`,
       };
 
-      await apiClient.updateIncident(incidentId, { statut: 'traite', report: fullReport });
+      const { error } = await supabase
+        .from('incidents')
+        .update({
+          statut: 'traite',
+          report: fullReport,
+        })
+        .eq('id', incidentId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess(`Rapport d'intervention soumis.`);
-      // Notification créée côté backend
     } catch (error: any) {
-      console.error("Error adding intervention report:", error.message);
+      console.error("Error adding intervention report:", error.message || error);
       showError("Erreur lors de l'ajout du rapport d'intervention.");
     }
   };
@@ -202,14 +277,21 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
     }
 
     try {
-      await apiClient.updateIncident(incidentId, {
-        assigned_to: assignedTo,
-        assigned_to_name: assigneeName,
-        prestataire: prestataire || null,
-        priorite: priority,
-        deadline: deadline.toISOString(),
-        statut: 'attente'
-      });
+      const { error } = await supabase
+        .from('incidents')
+        .update({
+          assigned_to: assignedTo,
+          assigned_to_name: assigneeName || null,
+          prestataire: prestataire || null,
+          priorite: priority,
+          deadline: deadline.toISOString(),
+          statut: 'attente',
+        })
+        .eq('id', incidentId);
+
+      if (error) {
+        throw error;
+      }
 
       const assignedUserName = assigneeName || users[Object.keys(users).find(key => users[key].id === assignedTo)!]?.name || 'un agent';
       showSuccess(`Ticket assigné à ${assignedUserName}${prestataire ? ` (Prestataire: ${prestataire})` : ''}.`);
@@ -227,9 +309,8 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
             : incident
         )
       );
-      // Notifications créées côté backend
     } catch (error: any) {
-      console.error("Error assigning ticket:", error.message);
+      console.error("Error assigning ticket:", error.message || error);
       showError("Erreur lors de l'assignation du ticket.");
     }
   };
@@ -247,12 +328,19 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
     }
 
     try {
-      await apiClient.updateIncident(incidentId, {
-        assigned_to: null,
-        assigned_to_name: null,
-        deadline: null,
-        statut: 'nouveau'
-      });
+      const { error } = await supabase
+        .from('incidents')
+        .update({
+          assigned_to: null,
+          assigned_to_name: null,
+          deadline: null,
+          statut: 'nouveau',
+        })
+        .eq('id', incidentId);
+
+      if (error) {
+        throw error;
+      }
       
       showSuccess(`Le ticket a été désassigné.`);
       setIncidents(prev =>
@@ -268,9 +356,8 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
             : incident
         )
       );
-      // Notifications créées côté backend
     } catch (error: any) {
-      console.error("Error unassigning ticket:", error.message);
+      console.error("Error unassigning ticket:", error.message || error);
       showError("Erreur lors de la désassignation du ticket.");
     }
   };
@@ -288,30 +375,41 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
     }
 
     try {
-      await apiClient.createIncident({
-        type: intervention.type,
-        description: intervention.description,
-        priorite: intervention.priorite,
-        service: intervention.service,
-        lieu: intervention.lieu,
-        photo_urls: [],
-      });
-      
-      // Ensuite mettre à jour pour assigner
-      const allIncidents = await apiClient.getIncidents();
-      const created = allIncidents[allIncidents.length - 1]; // Dernier créé
-      await apiClient.updateIncident(created.id, {
-        assigned_to: intervention.assigned_to,
-        assigned_to_name: undefined,
-        deadline: intervention.deadline?.toISOString(),
-        statut: 'attente'
-      });
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
+      }
+
+      const { error } = await supabase.from('incidents').insert([
+        {
+          type: intervention.type,
+          description: intervention.description,
+          priorite: intervention.priorite,
+          service: intervention.service,
+          lieu: intervention.lieu,
+          photo_urls: [],
+          date_creation: new Date().toISOString(),
+          reported_by: user.id,
+          assigned_to: intervention.assigned_to || null,
+          assigned_to_name: null,
+          deadline: intervention.deadline ? intervention.deadline.toISOString() : null,
+          statut: 'attente',
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
 
       const assignedUserName = users[Object.keys(users).find(key => users[key].id === intervention.assigned_to)!]?.name || 'un agent';
       showSuccess(`Intervention planifiée et assignée à ${assignedUserName}.`);
-      // Notification créée côté backend (via updateIncident avec assigned_to)
     } catch (error: any) {
-      console.error("Error planning intervention:", error.message);
+      console.error("Error planning intervention:", error.message || error);
       showError("Erreur lors de la planification de l'intervention.");
     }
   };
@@ -341,22 +439,31 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
     }
 
     try {
-      await apiClient.updateIncident(incidentId, {
-        prestataire: prestataire
-      });
+      const { error: updateError } = await supabase
+        .from('incidents')
+        .update({
+          prestataire,
+        })
+        .eq('id', incidentId);
 
-      // Recharger les incidents depuis le backend pour s'assurer que la mise à jour est bien sauvegardée
-      const updatedIncidents = await apiClient.getIncidents();
-      const formattedIncidents: Incident[] = updatedIncidents.map((item: any) => {
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Recharger les incidents depuis Supabase pour s'assurer que la mise à jour est bien sauvegardée
+      const { data, error: fetchError } = await supabase
+        .from('incidents')
+        .select('*')
+        .order('date_creation', { ascending: false });
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      const formattedIncidents: Incident[] = data.map((item: any) => {
         let rawPriorite = item.priorite;
         if (rawPriorite != null && rawPriorite !== undefined) {
-          if (Buffer.isBuffer(rawPriorite)) {
-            rawPriorite = rawPriorite.toString('utf8');
-          } else if (typeof rawPriorite === 'object' && rawPriorite.toString) {
-            rawPriorite = rawPriorite.toString();
-          } else {
-            rawPriorite = String(rawPriorite);
-          }
+          rawPriorite = String(rawPriorite);
         }
         let normalizedPriorite = 'moyenne';
         if (rawPriorite && typeof rawPriorite === 'string') {
@@ -375,16 +482,18 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
           priorite: priorite as IncidentPriority,
           service: item.service,
           lieu: item.lieu,
-          photo_urls: (() => {
-            try {
-              const parsed = typeof item.photo_urls === 'string' ? JSON.parse(item.photo_urls) : item.photo_urls;
-              if (Array.isArray(parsed)) return parsed;
-              if (typeof parsed === 'string' && parsed.trim() !== '') return [parsed];
-              return [];
-            } catch {
-              return [];
-            }
-          })(),
+          photo_urls: Array.isArray(item.photo_urls)
+            ? item.photo_urls
+            : item.photo_urls
+            ? (() => {
+                try {
+                  const parsed = typeof item.photo_urls === 'string' ? JSON.parse(item.photo_urls) : item.photo_urls;
+                  return Array.isArray(parsed) ? parsed : [];
+                } catch {
+                  return [];
+                }
+              })()
+            : [],
           assigned_to: item.assigned_to || undefined,
           assigned_to_name: item.assigned_to_name || undefined,
           prestataire: item.prestataire || undefined,
@@ -392,11 +501,11 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
           report: item.report ? (typeof item.report === 'string' ? JSON.parse(item.report) : item.report) : undefined,
         };
       });
-      
+
       setIncidents(formattedIncidents);
       showSuccess(`Prestataire mis à jour avec succès.`);
     } catch (error: any) {
-      console.error("Error updating prestataire:", error.message);
+      console.error("Error updating prestataire:", error.message || error);
       showError("Erreur lors de la mise à jour du prestataire.");
       throw error;
     }

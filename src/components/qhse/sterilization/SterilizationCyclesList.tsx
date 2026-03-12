@@ -5,7 +5,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { SterilizationCycle, CycleStatus, CycleResult } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { supabase } from "@/integrations/supabase/client";
 
 const statusLabels: Record<CycleStatus, string> = {
   en_cours: "En cours",
@@ -58,7 +58,15 @@ export const SterilizationCyclesList = () => {
   const fetchCycles = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getSterilizationCycles();
+      const { data, error } = await supabase
+        .from('sterilization_cycles')
+        .select('*')
+        .order('start_time', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       setCycles(data.map((cycle: any) => ({
         ...cycle,
         start_time: new Date(cycle.start_time),
@@ -75,7 +83,12 @@ export const SterilizationCyclesList = () => {
 
   const handleCreateCycle = async (cycleData: any) => {
     try {
-      await apiClient.createSterilizationCycle(cycleData);
+      const { error } = await supabase.from('sterilization_cycles').insert([cycleData]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Cycle de stérilisation démarré avec succès");
       setIsDialogOpen(false);
       fetchCycles();

@@ -5,7 +5,7 @@ import { showSuccess, showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ExcelImportButton } from "./ExcelImportButton";
-import { apiClient } from "@/integrations/api/client";
+import { supabase } from "@/integrations/supabase/client";
 
 interface PortalExcelActionsProps {
   portalType: string;
@@ -152,40 +152,45 @@ export const PortalExcelActions = ({ portalType, data, onExport, onImport }: Por
       if (portalType.includes('visitor') || portalType === 'secretaire') {
         // Import de visiteurs
         for (const item of importedData) {
-          await apiClient.createVisitor({
-            first_name: item['Prénom'] || item.first_name || '',
-            last_name: item['Nom'] || item.last_name || '',
-            visitee_name: item['Visité'] || item.visitee_name || '',
+          const { error } = await supabase.from('visitors').insert([{
+            full_name: `${item['Prénom'] || item.first_name || ''} ${item['Nom'] || item.last_name || ''}`.trim(),
             reason: item['Motif'] || item.reason || '',
+            person_to_see: item['Visité'] || item.visitee_name || '',
             entry_time: item['Date Entrée'] || item.entry_time || new Date().toISOString(),
-          });
+          }]);
+          if (error) throw error;
         }
       }
 
       if (portalType.includes('booking') || portalType === 'medecin' || portalType === 'secretaire') {
         // Import de réservations
         for (const item of importedData) {
-          await apiClient.createBooking({
+          const { error } = await supabase.from('bookings').insert([{
             room_id: item['ID Salle'] || item.room_id || '',
             doctor_id: item['ID Médecin'] || item.doctor_id || null,
             start_time: item['Date Début'] || item.start_time || new Date().toISOString(),
             end_time: item['Date Fin'] || item.end_time || new Date().toISOString(),
             title: item['Titre'] || item.title || '',
-          });
+            status: 'prévu',
+          }]);
+          if (error) throw error;
         }
       }
 
       if (portalType === 'biomedical') {
         // Import d'équipements biomédicaux
         for (const item of importedData) {
-          await apiClient.createBiomedicalEquipment({
+          const { error } = await supabase.from('biomedical_equipment').insert([{
             name: item['Nom'] || item.name || '',
             model: item['Modèle'] || item.model || null,
             serial_number: item['N° Série'] || item.serial_number || null,
             location: item['Localisation'] || item.location || '',
             department: item['Département'] || item.department || null,
             notes: item['Notes'] || item.notes || null,
-          });
+            status: 'en_service',
+            created_at: new Date().toISOString(),
+          }]);
+          if (error) throw error;
         }
       }
 

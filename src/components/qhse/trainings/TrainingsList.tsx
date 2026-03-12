@@ -5,7 +5,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { Competency, Training, TrainingParticipation, TrainingStatus, TrainingType, Users } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showError, showSuccess } from "@/utils/toast";
 import { differenceInDays, format, formatDistanceToNow, isBefore } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -16,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { supabase } from "@/integrations/supabase/client";
 import { PRESTATAIRES } from "@/utils/prestataires";
 
 const trainingTypeLabels: Record<TrainingType, string> = {
@@ -69,11 +69,19 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [trainingsData, participationsData, competenciesData] = await Promise.all([
-        apiClient.getTrainings(),
-        apiClient.getTrainingParticipations(),
-        apiClient.getCompetencies(),
+      const [
+        { data: trainingsData, error: trainingsError },
+        { data: participationsData, error: participationsError },
+        { data: competenciesData, error: competenciesError },
+      ] = await Promise.all([
+        supabase.from('trainings').select('*'),
+        supabase.from('training_participations').select('*'),
+        supabase.from('competencies').select('*'),
       ]);
+
+      if (trainingsError) throw trainingsError;
+      if (participationsError) throw participationsError;
+      if (competenciesError) throw competenciesError;
 
       setTrainings(trainingsData.map((training: any) => ({
         ...training,
@@ -114,7 +122,11 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
 
   const handleCreateTraining = async (trainingData: any) => {
     try {
-      await apiClient.createTraining(trainingData);
+      const { error } = await supabase.from('trainings').insert([trainingData]);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Formation créée avec succès");
       setIsTrainingDialogOpen(false);
       loadData();
@@ -125,7 +137,11 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
 
   const handleAddParticipation = async (data: any) => {
     try {
-      await apiClient.createTrainingParticipation(data);
+      const { error } = await supabase.from('training_participations').insert([data]);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Participation enregistrée");
       setIsParticipationDialogOpen(false);
       setSelectedTrainingId('');
@@ -137,7 +153,11 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
 
   const handleAddCompetency = async (data: any) => {
     try {
-      await apiClient.createCompetency(data);
+      const { error } = await supabase.from('competencies').insert([data]);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Habilitation enregistrée");
       setIsCompetencyDialogOpen(false);
       loadData();
@@ -153,7 +173,14 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
 
   const handleUpdateTraining = async (trainingId: string, data: any) => {
     try {
-      await apiClient.updateTraining(trainingId, data);
+      const { error } = await supabase
+        .from('trainings')
+        .update(data)
+        .eq('id', trainingId);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Formation mise à jour avec succès");
       setIsTrainingDetailsDialogOpen(false);
       loadData();
@@ -167,7 +194,11 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
       return;
     }
     try {
-      await apiClient.deleteTraining(trainingId);
+      const { error } = await supabase.from('trainings').delete().eq('id', trainingId);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Formation supprimée avec succès");
       setIsTrainingDetailsDialogOpen(false);
       loadData();

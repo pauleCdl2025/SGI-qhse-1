@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { apiClient } from '@/integrations/api/client';
 import { showError, showSuccess } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface QHSEAnomaly {
   id: string;
@@ -36,7 +36,15 @@ export const useAnomalies = () => {
   const fetchAnomalies = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getQHSEAnomalies();
+      const { data, error } = await supabase
+        .from('qhse_anomalies')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       setAnomalies(
         data.map((a: any) => ({
           ...a,
@@ -59,7 +67,27 @@ export const useAnomalies = () => {
 
   const createAnomaly = async (payload: Partial<QHSEAnomaly>) => {
     try {
-      await apiClient.createQHSEAnomaly(payload);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
+      }
+
+      const { error } = await supabase.from('qhse_anomalies').insert([
+        {
+          ...payload,
+          created_by: user.id,
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Anomalie créée.");
       await fetchAnomalies();
     } catch (error: any) {
@@ -70,7 +98,15 @@ export const useAnomalies = () => {
 
   const updateAnomaly = async (id: string, payload: Partial<QHSEAnomaly>) => {
     try {
-      await apiClient.updateQHSEAnomaly(id, payload);
+      const { error } = await supabase
+        .from('qhse_anomalies')
+        .update(payload)
+        .eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Anomalie mise à jour.");
       await fetchAnomalies();
     } catch (error: any) {
@@ -81,7 +117,12 @@ export const useAnomalies = () => {
 
   const deleteAnomaly = async (id: string) => {
     try {
-      await apiClient.deleteQHSEAnomaly(id);
+      const { error } = await supabase.from('qhse_anomalies').delete().eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Anomalie supprimée.");
       setAnomalies(prev => prev.filter(a => a.id !== id));
     } catch (error: any) {

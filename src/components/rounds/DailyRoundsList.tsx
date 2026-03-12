@@ -5,12 +5,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { DailyRound, RoundType, RoundStatus, User } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { supabase } from "@/integrations/supabase/client";
 import { RoundChecklistForm } from "./RoundChecklistForm";
 import { DashboardCard } from "@/components/shared/DashboardCard";
 import { exportToExcel } from "@/utils/excelExport";
@@ -53,7 +53,16 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
   const fetchRounds = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getDailyRounds(user.id, roundType);
+      const { data, error } = await supabase
+        .from('daily_rounds')
+        .select('*')
+        .eq('technician_id', user.id)
+        .eq('round_type', roundType)
+        .order('round_date', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
       setRounds(data.map((round: any) => ({
         ...round,
         round_date: new Date(round.round_date),
@@ -98,17 +107,27 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
       const startTime = format(now, "yyyy-MM-dd HH:mm:ss");
       
       const technicianName = user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : '';
-      const round = await apiClient.createDailyRound({
-        technician_id: user.id,
-        technician_name: technicianName,
-        round_type: roundType,
-        round_date: roundDate,
-        status: 'en_cours',
-        start_time: startTime,
-      });
+      const { data, error } = await supabase
+        .from('daily_rounds')
+        .insert([
+          {
+            technician_id: user.id,
+            technician_name: technicianName,
+            round_type: roundType,
+            round_date: roundDate,
+            status: 'en_cours',
+            start_time: startTime,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Ronde démarrée avec succès");
       setIsDialogOpen(false);
-      setSelectedRound(round);
+      setSelectedRound(data as DailyRound);
       setIsChecklistDialogOpen(true);
       fetchRounds();
     } catch (error: any) {
@@ -134,7 +153,11 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
     }
 
     try {
-      await apiClient.deleteDailyRound(round.id);
+      const { error } = await supabase.from('daily_rounds').delete().eq('id', round.id);
+
+      if (error) {
+        throw error;
+      }
       showSuccess("Ronde supprimée avec succès");
       fetchRounds();
     } catch (error: any) {

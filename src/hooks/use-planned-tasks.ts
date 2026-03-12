@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PlannedTask, PlannedTaskStatus, User, Users } from '@/types';
-import { apiClient } from '@/integrations/api/client';
 import { showSuccess, showError } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface UsePlannedTasksProps {
   currentUser: { username: string; details: User } | null;
@@ -13,16 +13,26 @@ export const usePlannedTasks = ({ currentUser, users, addNotification }: UsePlan
   const [plannedTasks, setPlannedTasks] = useState<PlannedTask[]>([]);
 
   const fetchPlannedTasks = useCallback(async () => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    if (!token) {
-      setPlannedTasks([]);
-      return;
-    }
-
-    apiClient.setToken(token);
-
     try {
-      const data = await apiClient.getPlannedTasks();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        setPlannedTasks([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('planned_tasks')
+        .select('*')
+        .order('due_date', { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
       const fetchedTasks: PlannedTask[] = data.map((item: any) => ({
         id: item.id,
         title: item.title,
@@ -37,7 +47,7 @@ export const usePlannedTasks = ({ currentUser, users, addNotification }: UsePlan
       setPlannedTasks(fetchedTasks);
     } catch (error: any) {
       if (error.status !== 401 && error.status !== 403) {
-        console.error("Error fetching planned tasks:", error.message);
+        console.error("Error fetching planned tasks:", error.message || error);
         showError("Erreur lors du chargement des tâches planifiées.");
       }
     }
@@ -71,48 +81,76 @@ export const usePlannedTasks = ({ currentUser, users, addNotification }: UsePlan
     }
 
     try {
-      await apiClient.createPlannedTask({
-        title: task.title,
-        description: task.description,
-        assigned_to: task.assigned_to,
-        assignee_name: task.assignee_name,
-        due_date: task.due_date.toISOString().split('T')[0], // Format date seulement
-      });
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
+      }
+
+      const { error } = await supabase.from('planned_tasks').insert([
+        {
+          title: task.title,
+          description: task.description,
+          assigned_to: task.assigned_to,
+          assignee_name: task.assignee_name,
+          due_date: task.due_date.toISOString().split('T')[0],
+          status: 'en_attente',
+          created_by: user.id,
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
       const assignedUser = Object.values(users).find(user => user.id === task.assigned_to);
       const assignedName = task.assignee_name || assignedUser?.name || assignedUser?.username || 'agent';
       showSuccess(`Tâche "${task.title}" créée et assignée à ${assignedName}.`);
-      // Notification créée côté backend
       await fetchPlannedTasks();
     } catch (error: any) {
-      console.error("Error adding planned task:", error.message);
+      console.error("Error adding planned task:", error.message || error);
       showError("Erreur lors de l'ajout de la tâche planifiée.");
     }
   };
 
   const updatePlannedTaskStatus = async (taskId: string, status: PlannedTaskStatus) => {
     try {
-      await apiClient.updatePlannedTask(taskId, { status });
+      const { error } = await supabase
+        .from('planned_tasks')
+        .update({ status })
+        .eq('id', taskId);
+
+      if (error) {
+        throw error;
+      }
+
       setPlannedTasks(prev =>
         prev.map(task => task.id === taskId ? { ...task, status } : task)
       );
       showSuccess(`Le statut de la tâche a été mis à jour.`);
-      // Notification créée côté backend
-      // Rafraîchir pour garantir la cohérence avec le backend
       await fetchPlannedTasks();
     } catch (error: any) {
-      console.error("Error updating planned task status:", error.message);
+      console.error("Error updating planned task status:", error.message || error);
       showError("Erreur lors de la mise à jour du statut de la tâche.");
     }
   };
 
   const deletePlannedTask = async (taskId: string) => {
     try {
-      await apiClient.deletePlannedTask(taskId);
+      const { error } = await supabase.from('planned_tasks').delete().eq('id', taskId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("La tâche a été supprimée.");
       await fetchPlannedTasks();
-      // Notification créée côté backend
     } catch (error: any) {
-      console.error("Error deleting planned task:", error.message);
+      console.error("Error deleting planned task:", error.message || error);
       showError("Erreur lors de la suppression de la tâche.");
     }
   };

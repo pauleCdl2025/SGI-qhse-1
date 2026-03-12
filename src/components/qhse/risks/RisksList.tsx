@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/Icon";
 import { Risk, RiskCategory, RiskLevel, RiskStatus, User, UserRole, RiskAction, ActionType, ActionStatus } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -16,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
 import { canViewRisk, roleToPoste, getSupervisorPostes, availablePostes } from "@/utils/riskPosteMapping";
-import { User } from "@/types";
+import { supabase } from "@/integrations/supabase/client";
 
 const categoryLabels: Record<RiskCategory, string> = {
   biologique: "Biologique",
@@ -103,7 +102,15 @@ export const RisksList = ({ currentUser }: RisksListProps = {}) => {
   const fetchRisks = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getRisks();
+      const { data, error } = await supabase
+        .from('risks')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
       setRisks(data.map((risk: any) => ({
         ...risk,
         created_at: new Date(risk.created_at),
@@ -121,7 +128,12 @@ export const RisksList = ({ currentUser }: RisksListProps = {}) => {
 
   const handleCreateRisk = async (riskData: any) => {
     try {
-      await apiClient.createRisk(riskData);
+      const { error } = await supabase.from('risks').insert([riskData]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Risque créé avec succès");
       setIsDialogOpen(false);
       fetchRisks();
@@ -137,7 +149,15 @@ export const RisksList = ({ currentUser }: RisksListProps = {}) => {
 
   const handleUpdateRisk = async (riskId: string, data: any) => {
     try {
-      await apiClient.updateRisk(riskId, data);
+      const { error } = await supabase
+        .from('risks')
+        .update(data)
+        .eq('id', riskId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Risque mis à jour avec succès");
       setIsDetailsDialogOpen(false);
       fetchRisks();
@@ -151,7 +171,12 @@ export const RisksList = ({ currentUser }: RisksListProps = {}) => {
       return;
     }
     try {
-      await apiClient.deleteRisk(riskId);
+      const { error } = await supabase.from('risks').delete().eq('id', riskId);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Risque supprimé avec succès");
       setIsDetailsDialogOpen(false);
       fetchRisks();

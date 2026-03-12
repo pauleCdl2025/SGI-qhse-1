@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -15,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFilterAndSearch } from "@/components/shared/SearchAndFilter";
 import { LoadingSpinner } from "@/components/shared/Loading";
+import { supabase } from "@/integrations/supabase/client";
 
 const statusCycleLabels: Record<string, string> = {
   en_cours: "En cours",
@@ -62,8 +62,16 @@ export const SterilizationRegisterList = () => {
   const fetchRegisters = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getSterilizationRegister();
-      setRegisters(data);
+      const { data, error } = await supabase
+        .from('sterilization_register')
+        .select('*')
+        .order('date_cycle', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      setRegisters(data || []);
     } catch (error: any) {
       console.error("Error fetching sterilization register:", error);
       showError("Erreur lors du chargement du registre de stérilisation.");
@@ -74,7 +82,12 @@ export const SterilizationRegisterList = () => {
 
   const handleCreateRegister = async (formData: any) => {
     try {
-      await apiClient.createSterilizationRegister(formData);
+      const { error } = await supabase.from('sterilization_register').insert([formData]);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Registre de stérilisation créé avec succès");
       setIsDialogOpen(false);
       fetchRegisters();
@@ -85,7 +98,15 @@ export const SterilizationRegisterList = () => {
 
   const handleUpdateRegister = async (id: string, formData: any) => {
     try {
-      await apiClient.updateSterilizationRegister(id, formData);
+      const { error } = await supabase
+        .from('sterilization_register')
+        .update(formData)
+        .eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess("Registre mis à jour avec succès");
       setIsDialogOpen(false);
       setSelectedRegister(null);
