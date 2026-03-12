@@ -115,8 +115,14 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
 
   const addBiomedicalEquipment = async (equipment: Omit<BiomedicalEquipment, 'id' | 'status' | 'last_maintenance' | 'next_maintenance' | 'model' | 'department' | 'created_at'>) => {
     try {
+      const id =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
       const { error } = await supabase.from('biomedical_equipment').insert([
         {
+          id,
           name: equipment.name,
           serial_number: equipment.serial_number,
           location: equipment.location,
