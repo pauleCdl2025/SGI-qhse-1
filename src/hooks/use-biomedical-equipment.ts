@@ -129,7 +129,7 @@ export const useBiomedicalEquipment = ({ addNotification }: UseBiomedicalEquipme
           model: 'N/A',
           department: 'N/A',
           notes: equipment.notes ?? null,
-          status: 'en_service',
+          status: 'opérationnel',
           created_at: new Date().toISOString(),
         },
       ]);
