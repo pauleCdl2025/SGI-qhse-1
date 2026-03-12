@@ -153,8 +153,14 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
         return;
       }
 
+      const id =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
       const { error } = await supabase.from('incidents').insert([
         {
+          id,
           type: newIncident.type,
           description: newIncident.description,
           date_creation: new Date().toISOString(),
