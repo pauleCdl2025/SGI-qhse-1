@@ -6,8 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Icon } from "@/components/Icon";
 import { DailyRound, RoundChecklistTemplate, RoundChecklistResponse, User, EquipmentStatus } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -37,10 +37,14 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
 
   const fetchTemplates = async () => {
     try {
-      const data = await apiClient.getRoundChecklistTemplates(round.round_type);
-      setTemplates(data.sort((a: RoundChecklistTemplate, b: RoundChecklistTemplate) => a.item_order - b.item_order));
+      const { data, error } = await supabase
+        .from('round_checklist_templates')
+        .select('*')
+        .eq('round_type', round.round_type);
+      if (error) throw error;
+      setTemplates((data || []).sort((a: RoundChecklistTemplate, b: RoundChecklistTemplate) => (a.item_order || 0) - (b.item_order || 0)));
     } catch (error: any) {
-      showError("Erreur lors du chargement des templates: " + error.message);
+      showError("Erreur lors du chargement des templates: " + (error?.message || error));
     } finally {
       setLoading(false);
     }
@@ -48,9 +52,13 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
 
   const fetchResponses = async () => {
     try {
-      const data = await apiClient.getRoundChecklistResponses(round.id);
+      const { data, error } = await supabase
+        .from('round_checklist_responses')
+        .select('*')
+        .eq('round_id', round.id);
+      if (error) throw error;
       const responsesMap: Record<string, RoundChecklistResponse> = {};
-      data.forEach((response: RoundChecklistResponse) => {
+      (data || []).forEach((response: RoundChecklistResponse) => {
         responsesMap[response.template_id] = response;
       });
       setResponses(responsesMap);
@@ -78,16 +86,30 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     try {
       let response: RoundChecklistResponse;
       if (existingResponse) {
-        response = await apiClient.updateRoundChecklistResponse(existingResponse.id, responseData);
+        const { data: updated, error } = await supabase
+          .from('round_checklist_responses')
+          .update(responseData)
+          .eq('id', existingResponse.id)
+          .select()
+          .single();
+        if (error) throw error;
+        response = updated;
       } else {
-        response = await apiClient.createRoundChecklistResponse(responseData as RoundChecklistResponse);
+        const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const { data: inserted, error } = await supabase
+          .from('round_checklist_responses')
+          .insert([{ ...responseData, id }])
+          .select()
+          .single();
+        if (error) throw error;
+        response = inserted;
       }
       setResponses(prev => ({
         ...prev,
         [templateId]: response,
       }));
     } catch (error: any) {
-      showError("Erreur lors de la sauvegarde: " + error.message);
+      showError("Erreur lors de la sauvegarde: " + (error?.message || error));
     }
   };
 
@@ -96,13 +118,19 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     if (!existingResponse) return;
 
     try {
-      const updated = await apiClient.updateRoundChecklistResponse(existingResponse.id, { observation });
+      const { data: updated, error } = await supabase
+        .from('round_checklist_responses')
+        .update({ observation })
+        .eq('id', existingResponse.id)
+        .select()
+        .single();
+      if (error) throw error;
       setResponses(prev => ({
         ...prev,
         [templateId]: updated,
       }));
     } catch (error: any) {
-      showError("Erreur lors de la sauvegarde: " + error.message);
+      showError("Erreur lors de la sauvegarde: " + (error?.message || error));
     }
   };
 
@@ -117,20 +145,31 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     try {
       let response: RoundChecklistResponse;
       if (existingResponse) {
-        response = await apiClient.updateRoundChecklistResponse(existingResponse.id, { equipment_status: status });
+        const { data: updated, error } = await supabase
+          .from('round_checklist_responses')
+          .update({ equipment_status: status })
+          .eq('id', existingResponse.id)
+          .select()
+          .single();
+        if (error) throw error;
+        response = updated;
       } else {
-        // Créer une réponse si elle n'existe pas encore
-        response = await apiClient.createRoundChecklistResponse({
-          ...responseData,
-          is_checked: true, // Si on marque l'état, c'est que l'item est effectué
-        } as RoundChecklistResponse);
+        const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const payload = { ...responseData, id, is_checked: true };
+        const { data: inserted, error } = await supabase
+          .from('round_checklist_responses')
+          .insert([payload])
+          .select()
+          .single();
+        if (error) throw error;
+        response = inserted;
       }
       setResponses(prev => ({
         ...prev,
         [templateId]: response,
       }));
     } catch (error: any) {
-      showError("Erreur lors de la sauvegarde: " + error.message);
+      showError("Erreur lors de la sauvegarde: " + (error?.message || error));
     }
   };
 
@@ -146,7 +185,13 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
         updateData.service_name = value;
       }
 
-      const updated = await apiClient.updateRoundChecklistResponse(existingResponse.id, updateData);
+      const { data: updated, error } = await supabase
+        .from('round_checklist_responses')
+        .update(updateData)
+        .eq('id', existingResponse.id)
+        .select()
+        .single();
+      if (error) throw error;
       setResponses(prev => ({
         ...prev,
         [templateId]: updated,
@@ -165,19 +210,22 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     try {
       setSaving(true);
       
-      // Mettre à jour la ronde
-      await apiClient.updateDailyRound(round.id, {
-        status: 'terminée',
-        end_time: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
-        notes: notes,
-        technician_name: technicianName.trim(),
-      });
+      await supabase
+        .from('daily_rounds')
+        .update({
+          status: 'terminée',
+          end_time: format(new Date(), "yyyy-MM-dd HH:mm:ss"),
+          notes: notes,
+          technician_name: technicianName.trim(),
+        })
+        .eq('id', round.id);
 
-      // Recharger les réponses pour s'assurer d'avoir les dernières données (equipment_status, equipment_name, service_name)
-      console.log('🔄 Rechargement des réponses avant création des tâches...');
-      const latestResponsesData = await apiClient.getRoundChecklistResponses(round.id);
+      const { data: latestResponsesData } = await supabase
+        .from('round_checklist_responses')
+        .select('*')
+        .eq('round_id', round.id);
       const latestResponsesMap: Record<string, RoundChecklistResponse> = {};
-      latestResponsesData.forEach((response: RoundChecklistResponse) => {
+      (latestResponsesData || []).forEach((response: RoundChecklistResponse) => {
         latestResponsesMap[response.template_id] = response;
       });
       setResponses(latestResponsesMap);
@@ -258,9 +306,9 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
                 due_date: format(dueDate, "yyyy-MM-dd"),
               };
               
-              console.log('📤 Envoi de la tâche au backend:', taskData);
-              const result = await apiClient.createPlannedTask(taskData);
-              console.log('✅ Tâche créée avec succès:', result);
+              const taskId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+              const { error: taskErr } = await supabase.from('planned_tasks').insert([{ ...taskData, id: taskId }]);
+              if (taskErr) throw taskErr;
               
               tasksCreated++;
             } catch (error: any) {
@@ -362,10 +410,8 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
               onChange={(e) => {
                 setTechnicianName(e.target.value);
                 // Sauvegarder automatiquement le nom
-                apiClient.updateDailyRound(round.id, {
-                  technician_name: e.target.value,
-                }).catch((error: any) => {
-                  console.error("Erreur lors de la sauvegarde du nom:", error);
+                supabase.from('daily_rounds').update({ technician_name: e.target.value }).eq('id', round.id).then(({ error }) => {
+                  if (error) console.error("Erreur lors de la sauvegarde du nom:", error);
                 });
               }}
               placeholder="Entrez votre nom complet"

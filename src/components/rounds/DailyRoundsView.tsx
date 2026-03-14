@@ -5,8 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { DailyRound, RoundType, RoundStatus, RoundChecklistResponse, RoundChecklistTemplate, Users } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -60,32 +60,33 @@ export const DailyRoundsView = ({ users }: DailyRoundsViewProps) => {
   const fetchAllRounds = async () => {
     try {
       setLoading(true);
-      // Récupérer toutes les rondes (sans filtre technician_id)
-      const biomedicalRounds = await apiClient.getDailyRounds(undefined, 'biomedical');
-      const polyvalentRounds = await apiClient.getDailyRounds(undefined, 'technicien_polyvalent');
-      
+      const { data: biomedicalRounds, error: errBio } = await supabase
+        .from('daily_rounds')
+        .select('*')
+        .eq('round_type', 'biomedical')
+        .order('round_date', { ascending: false });
+      const { data: polyvalentRounds, error: errPoly } = await supabase
+        .from('daily_rounds')
+        .select('*')
+        .eq('round_type', 'technicien_polyvalent')
+        .order('round_date', { ascending: false });
+      if (errBio || errPoly) throw errBio || errPoly;
+
+      const mapRound = (r: any) => ({
+        ...r,
+        round_date: new Date(r.round_date),
+        start_time: r.start_time ? new Date(r.start_time) : undefined,
+        end_time: r.end_time ? new Date(r.end_time) : undefined,
+        created_at: r.created_at ? new Date(r.created_at) : undefined,
+        updated_at: r.updated_at ? new Date(r.updated_at) : undefined,
+      });
       const allRounds = [
-        ...biomedicalRounds.map((r: any) => ({
-          ...r,
-          round_date: new Date(r.round_date),
-          start_time: r.start_time ? new Date(r.start_time) : undefined,
-          end_time: r.end_time ? new Date(r.end_time) : undefined,
-          created_at: r.created_at ? new Date(r.created_at) : undefined,
-          updated_at: r.updated_at ? new Date(r.updated_at) : undefined,
-        })),
-        ...polyvalentRounds.map((r: any) => ({
-          ...r,
-          round_date: new Date(r.round_date),
-          start_time: r.start_time ? new Date(r.start_time) : undefined,
-          end_time: r.end_time ? new Date(r.end_time) : undefined,
-          created_at: r.created_at ? new Date(r.created_at) : undefined,
-          updated_at: r.updated_at ? new Date(r.updated_at) : undefined,
-        })),
+        ...(biomedicalRounds || []).map(mapRound),
+        ...(polyvalentRounds || []).map(mapRound),
       ];
-      
       setRounds(allRounds);
     } catch (error: any) {
-      showError("Erreur lors du chargement des rondes: " + error.message);
+      showError("Erreur lors du chargement des rondes: " + (error?.message || error));
     } finally {
       setLoading(false);
     }
@@ -93,18 +94,18 @@ export const DailyRoundsView = ({ users }: DailyRoundsViewProps) => {
 
   const fetchRoundResponses = async (roundId: string, roundType: RoundType) => {
     try {
-      // Charger les templates et les réponses en parallèle
-      const [responses, templatesData] = await Promise.all([
-        apiClient.getRoundChecklistResponses(roundId),
-        apiClient.getRoundChecklistTemplates(roundType)
+      const [responsesRes, templatesRes] = await Promise.all([
+        supabase.from('round_checklist_responses').select('*').eq('round_id', roundId),
+        supabase.from('round_checklist_templates').select('*').eq('round_type', roundType),
       ]);
-      
+      const responses = responsesRes.data || [];
+      const templatesData = templatesRes.data || [];
       setRoundResponses(responses);
-      setTemplates(templatesData.sort((a: RoundChecklistTemplate, b: RoundChecklistTemplate) => 
+      setTemplates(templatesData.sort((a: RoundChecklistTemplate, b: RoundChecklistTemplate) =>
         (a.item_order || 0) - (b.item_order || 0)
       ));
     } catch (error: any) {
-      showError("Erreur lors du chargement des réponses: " + error.message);
+      showError("Erreur lors du chargement des réponses: " + (error?.message || error));
     }
   };
 

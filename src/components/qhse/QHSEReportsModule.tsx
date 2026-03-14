@@ -6,8 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { fr } from "date-fns/locale";
 import { generateQHSEReportPDF } from "@/utils/qhseReportsGenerator";
@@ -59,26 +59,35 @@ export const QHSEReportsModule = () => {
   const fetchAllData = async () => {
     try {
       setLoading(true);
-      const [incidents, audits, trainings, medicalWaste, risks, sterilizationCycles, sterilizationRegister, laundryTracking] = await Promise.all([
-        apiClient.getIncidents().catch(() => []),
-        apiClient.getAudits().catch(() => []),
-        apiClient.getTrainings().catch(() => []),
-        apiClient.getMedicalWaste().catch(() => []),
-        apiClient.getRisks().catch(() => []),
-        apiClient.getSterilizationCycles().catch(() => []),
-        apiClient.getSterilizationRegister().catch(() => []),
-        apiClient.getLaundryTracking().catch(() => []),
+      const [
+        incidentsRes,
+        auditsRes,
+        trainingsRes,
+        medicalWasteRes,
+        risksRes,
+        sterilizationCyclesRes,
+        sterilizationRegisterRes,
+        laundryTrackingRes,
+      ] = await Promise.all([
+        supabase.from('incidents').select('*').then(r => r.data || []),
+        supabase.from('audits').select('*').then(r => r.data || []),
+        supabase.from('trainings').select('*').then(r => r.data || []),
+        supabase.from('medical_waste').select('*').then(r => r.data || []),
+        supabase.from('risks').select('*').then(r => r.data || []),
+        supabase.from('sterilization_cycles').select('*').then(r => r.data || []),
+        supabase.from('sterilization_register').select('*').then(r => r.data || []),
+        supabase.from('laundry_tracking').select('*').then(r => r.data || []),
       ]);
 
       setReportData({
-        incidents: incidents || [],
-        audits: audits || [],
-        trainings: trainings || [],
-        medicalWaste: medicalWaste || [],
-        risks: risks || [],
-        sterilizationCycles: sterilizationCycles || [],
-        sterilizationRegister: sterilizationRegister || [],
-        laundryTracking: laundryTracking || [],
+        incidents: incidentsRes || [],
+        audits: auditsRes || [],
+        trainings: trainingsRes || [],
+        medicalWaste: medicalWasteRes || [],
+        risks: risksRes || [],
+        sterilizationCycles: sterilizationCyclesRes || [],
+        sterilizationRegister: sterilizationRegisterRes || [],
+        laundryTracking: laundryTrackingRes || [],
       });
     } catch (error: any) {
       console.error("Error fetching report data:", error);
@@ -173,8 +182,12 @@ export const QHSEReportsModule = () => {
       const userId = localStorage.getItem('currentUserId');
       
       if (token && userId) {
-        apiClient.setToken(token);
-        const profile = await apiClient.getProfile(userId);
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
+        if (profileError || !profile) throw new Error('Profil non trouvé');
 
         const user = {
           id: profile.id,

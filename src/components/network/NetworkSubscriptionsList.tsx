@@ -5,8 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { User } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { format, isBefore, differenceInDays } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -74,8 +74,12 @@ export const NetworkSubscriptionsList = ({ user }: NetworkSubscriptionsListProps
   const fetchSubscriptions = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getNetworkSubscriptions();
-      setSubscriptions(data.map((sub: any) => ({
+      const { data, error } = await supabase
+        .from('network_subscriptions')
+        .select('*')
+        .order('start_date', { ascending: false });
+      if (error) throw error;
+      setSubscriptions((data || []).map((sub: any) => ({
         ...sub,
         start_date: new Date(sub.start_date),
         renewal_date: new Date(sub.renewal_date),
@@ -83,7 +87,7 @@ export const NetworkSubscriptionsList = ({ user }: NetworkSubscriptionsListProps
         updated_at: new Date(sub.updated_at),
       })));
     } catch (error: any) {
-      showError("Erreur lors du chargement: " + error.message);
+      showError("Erreur lors du chargement: " + (error?.message || error));
     } finally {
       setLoading(false);
     }
@@ -91,12 +95,14 @@ export const NetworkSubscriptionsList = ({ user }: NetworkSubscriptionsListProps
 
   const handleCreateSubscription = async (data: any) => {
     try {
-      await apiClient.createNetworkSubscription(data);
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { error } = await supabase.from('network_subscriptions').insert([{ ...data, id }]);
+      if (error) throw error;
       showSuccess("Abonnement créé avec succès");
       setIsDialogOpen(false);
       fetchSubscriptions();
     } catch (error: any) {
-      showError("Erreur: " + error.message);
+      showError("Erreur: " + (error?.message || error));
     }
   };
 

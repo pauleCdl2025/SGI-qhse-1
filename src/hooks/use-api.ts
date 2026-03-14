@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient, ApiError } from "@/integrations/api/client";
+import { ApiError } from "@/integrations/api/client";
 
 // Hook pour gérer les états de chargement et les erreurs
 export function useAsyncOperation<T, P = void>(

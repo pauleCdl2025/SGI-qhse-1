@@ -5,8 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { User } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -73,8 +73,12 @@ export const NetworkEquipmentList = ({ user }: NetworkEquipmentListProps) => {
   const fetchEquipment = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getNetworkEquipment();
-      setEquipment(data.map((eq: any) => ({
+      const { data, error } = await supabase
+        .from('network_equipment')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setEquipment((data || []).map((eq: any) => ({
         ...eq,
         installation_date: eq.installation_date ? new Date(eq.installation_date) : undefined,
         warranty_expiry: eq.warranty_expiry ? new Date(eq.warranty_expiry) : undefined,
@@ -82,7 +86,7 @@ export const NetworkEquipmentList = ({ user }: NetworkEquipmentListProps) => {
         updated_at: new Date(eq.updated_at),
       })));
     } catch (error: any) {
-      showError("Erreur lors du chargement: " + error.message);
+      showError("Erreur lors du chargement: " + (error?.message || error));
     } finally {
       setLoading(false);
     }
@@ -90,12 +94,14 @@ export const NetworkEquipmentList = ({ user }: NetworkEquipmentListProps) => {
 
   const handleCreateEquipment = async (data: any) => {
     try {
-      await apiClient.createNetworkEquipment(data);
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { error } = await supabase.from('network_equipment').insert([{ ...data, id }]);
+      if (error) throw error;
       showSuccess("Équipement créé avec succès");
       setIsDialogOpen(false);
       fetchEquipment();
     } catch (error: any) {
-      showError("Erreur: " + error.message);
+      showError("Erreur: " + (error?.message || error));
     }
   };
 

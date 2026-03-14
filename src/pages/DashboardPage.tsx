@@ -57,7 +57,7 @@ import {
   filterBookingsByRole, 
   filterBiomedicalEquipmentByRole 
 } from '@/utils/kpiFilter';
-import { apiClient } from '@/integrations/api/client';
+import { supabase } from '@/integrations/supabase/client';
 import { showSuccess, showError } from '@/utils/toast';
 import { IncidentType, IncidentService } from '@/types';
 
@@ -434,25 +434,49 @@ const DashboardPage = (props: DashboardPageProps) => {
     deadline: Date;
   }) => {
     try {
-      const newIncident = {
-        type: ticket.type,
-        description: ticket.description,
-        lieu: ticket.lieu,
-        service: ticket.service,
-        priorite: ticket.priority,
-        reported_by: user.id,
-      };
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-      const response = await apiClient.createIncident(newIncident) as { id?: string };
-      if (response?.id) {
-        await apiClient.updateIncident(response.id, {
-          assigned_to: ticket.assignedTo,
-          assigned_to_name: ticket.assigneeName,
-          deadline: ticket.deadline.toISOString(),
-          priorite: ticket.priority,
-          statut: 'attente',
-        });
+      if (authError || !authUser) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
       }
+
+      const id =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      const { data, error } = await supabase
+        .from('incidents')
+        .insert([
+          {
+            id,
+            type: ticket.type,
+            description: ticket.description,
+            date_creation: new Date().toISOString(),
+            reported_by: authUser.id,
+            statut: 'attente',
+            priorite: ticket.priority,
+            service: ticket.service,
+            lieu: ticket.lieu,
+            photo_urls: [],
+            assigned_to: ticket.assignedTo,
+            assigned_to_name: ticket.assigneeName || null,
+            prestataire: null,
+            deadline: ticket.deadline.toISOString(),
+            report: null,
+          },
+        ])
+        .select('id')
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
       showSuccess(`Ticket créé et assigné à ${ticket.assigneeName || "l'utilisateur"}.`);
       
       // Recharger les incidents

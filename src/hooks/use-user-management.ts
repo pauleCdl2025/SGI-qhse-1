@@ -1,6 +1,6 @@
 import { User, Users, UserRole, Civility } from '@/types';
-import { apiClient } from '@/integrations/api/client';
 import { showError, showSuccess } from '@/utils/toast';
+import { supabase } from '@/integrations/supabase/client';
 
 // Define a specific type for the user data passed to addUser
 interface NewUserData {
@@ -27,20 +27,39 @@ export const useUserManagement = ({ setUsers, fetchAllProfiles }: UseUserManagem
     }
 
     try {
-      const { user: createdUser } = await apiClient.signUp({
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: user.email,
         password: user.password,
-        username: username,
+        options: {
+          data: {
+            username,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            role: user.role,
+            service: user.position,
+            civility: user.civility,
+            pin: user.role === 'medecin' ? user.pin : null,
+          },
+        },
+      });
+      if (signUpError) throw signUpError;
+      const createdUser = authData.user;
+      if (!createdUser) throw new Error('Utilisateur non créé');
+
+      await supabase.from('profiles').upsert({
+        id: createdUser.id,
+        username,
         first_name: user.first_name,
         last_name: user.last_name,
+        email: user.email,
         role: user.role,
         service: user.position,
         civility: user.civility,
         pin: user.role === 'medecin' ? user.pin : null,
-      });
+      }, { onConflict: 'id' });
 
-      // Fetch the created profile
-      const profile = await apiClient.getProfile(createdUser.id);
+      const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', createdUser.id).single();
+      if (profileError || !profile) throw profileError || new Error('Profil non trouvé');
       const newUserWithId: User = {
         id: profile.id,
         username: profile.username,
@@ -58,7 +77,7 @@ export const useUserManagement = ({ setUsers, fetchAllProfiles }: UseUserManagem
       setUsers(prev => ({ ...prev, [username]: newUserWithId }));
       showSuccess(`L'utilisateur ${newUserWithId.name} a été ajouté avec succès.`);
     } catch (error: any) {
-      showError(error.message || "Erreur lors de la création de l'utilisateur.");
+      showError(error?.message || "Erreur lors de la création de l'utilisateur.");
     }
   };
 
@@ -71,7 +90,8 @@ export const useUserManagement = ({ setUsers, fetchAllProfiles }: UseUserManagem
         return;
       }
 
-      await apiClient.deleteProfile(userToDelete.id);
+      const { error } = await supabase.from('profiles').delete().eq('id', userToDelete.id);
+      if (error) throw error;
 
       // Update local state after successful deletion
       setUsers(prev => {
@@ -94,10 +114,11 @@ export const useUserManagement = ({ setUsers, fetchAllProfiles }: UseUserManagem
         return;
       }
 
-      await apiClient.updateProfile(userToUpdate.id, {
+      const { error } = await supabase.from('profiles').update({
         added_permissions: permissions.added,
         removed_permissions: permissions.removed,
-      });
+      }).eq('id', userToUpdate.id);
+      if (error) throw error;
 
       // Update local state
       setUsers(prev => ({
@@ -110,7 +131,7 @@ export const useUserManagement = ({ setUsers, fetchAllProfiles }: UseUserManagem
       }));
       showSuccess("Les permissions de l'utilisateur ont été mises à jour.");
     } catch (error: any) {
-      showError(`Erreur lors de la mise à jour des permissions: ${error.message}`);
+      showError(`Erreur lors de la mise à jour des permissions: ${error?.message || error}`);
     }
   };
 

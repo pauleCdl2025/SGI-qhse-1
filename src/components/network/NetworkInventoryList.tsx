@@ -5,8 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { User } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -65,15 +65,19 @@ export const NetworkInventoryList = ({ user }: NetworkInventoryListProps) => {
   const fetchInventory = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getNetworkInventory();
-      setInventory(data.map((item: any) => ({
+      const { data, error } = await supabase
+        .from('network_inventory')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setInventory((data || []).map((item: any) => ({
         ...item,
         purchase_date: item.purchase_date ? new Date(item.purchase_date) : undefined,
         created_at: new Date(item.created_at),
         updated_at: new Date(item.updated_at),
       })));
     } catch (error: any) {
-      showError("Erreur lors du chargement: " + error.message);
+      showError("Erreur lors du chargement: " + (error?.message || error));
     } finally {
       setLoading(false);
     }
@@ -81,12 +85,14 @@ export const NetworkInventoryList = ({ user }: NetworkInventoryListProps) => {
 
   const handleCreateItem = async (data: any) => {
     try {
-      await apiClient.createNetworkInventoryItem(data);
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { error } = await supabase.from('network_inventory').insert([{ ...data, id }]);
+      if (error) throw error;
       showSuccess("Article créé avec succès");
       setIsDialogOpen(false);
       fetchInventory();
     } catch (error: any) {
-      showError("Erreur: " + error.message);
+      showError("Erreur: " + (error?.message || error));
     }
   };
 

@@ -5,8 +5,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { IncidentComment, Incident, User } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Separator } from "@/components/ui/separator";
@@ -30,8 +30,13 @@ export const TicketComments = ({ incident, currentUser, onCommentAdded }: Ticket
   const fetchComments = async () => {
     try {
       setIsLoading(true);
-      const data = await apiClient.getIncidentComments(incident.id);
-      setComments(data);
+      const { data, error } = await supabase
+        .from('incident_comments')
+        .select('*')
+        .eq('incident_id', incident.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setComments(data || []);
     } catch (error: any) {
       console.error("Erreur lors du chargement des commentaires:", error);
     } finally {
@@ -51,10 +56,10 @@ export const TicketComments = ({ incident, currentUser, onCommentAdded }: Ticket
         ? `${currentUser.first_name} ${currentUser.last_name}`
         : currentUser.name || currentUser.username;
 
-      const comment = await apiClient.addIncidentComment(incident.id, {
-        comment: newComment.trim(),
-        user_name: userName,
-      });
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const row = { id, incident_id: incident.id, comment: newComment.trim(), user_name: userName };
+      const { data: comment, error } = await supabase.from('incident_comments').insert([row]).select().single();
+      if (error) throw error;
 
       setComments(prev => [...prev, comment]);
       setNewComment('');

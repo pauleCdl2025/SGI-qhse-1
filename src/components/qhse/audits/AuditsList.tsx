@@ -5,8 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/Icon";
 import { Audit, AuditType, AuditStatus, AuditChecklist, AuditActionPlan, ComplianceStatus, Users } from "@/types";
-import { apiClient } from "@/integrations/api/client";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/integrations/supabase/client";
 import { format, isBefore, differenceInDays } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -116,8 +116,9 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
   const fetchAudits = async () => {
     try {
       setLoading(true);
-      const data = await apiClient.getAudits();
-      setAudits(data.map((audit: any) => ({
+      const { data, error } = await supabase.from('audits').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      setAudits((data || []).map((audit: any) => ({
         ...audit,
         planned_date: new Date(audit.planned_date),
         actual_date: audit.actual_date ? new Date(audit.actual_date) : undefined,
@@ -125,7 +126,7 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
         updated_at: new Date(audit.updated_at),
       })));
     } catch (error: any) {
-      showError("Erreur lors du chargement des audits: " + error.message);
+      showError("Erreur lors du chargement des audits: " + (error?.message || error));
     } finally {
       setLoading(false);
     }
@@ -133,12 +134,14 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
 
   const handleCreateAudit = async (auditData: any) => {
     try {
-      await apiClient.createAudit(auditData);
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { error } = await supabase.from('audits').insert([{ ...auditData, id }]);
+      if (error) throw error;
       showSuccess("Audit créé avec succès");
       setIsDialogOpen(false);
       fetchAudits();
     } catch (error: any) {
-      showError("Erreur lors de la création: " + error.message);
+      showError("Erreur lors de la création: " + (error?.message || error));
     }
   };
 
@@ -182,14 +185,16 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
           <ExcelImportButton
             onImport={async (data: any[]) => {
               for (const item of data) {
-                await apiClient.createAudit({
+                const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                await supabase.from('audits').insert([{
+                  id,
                   title: item.title || item.Titre,
                   audit_type: item.audit_type || item.Type,
                   scope: item.scope || item.Scope || '',
                   planned_date: item.planned_date || item['Date Planifiée'],
                   auditor_id: item.auditor_id || null,
                   audited_department: item.audited_department || item.Département || null,
-                });
+                }]);
               }
               await fetchAudits();
             }}
@@ -602,12 +607,13 @@ const AuditDetailsDialog = ({
         setActualDate(updateData.actual_date);
       }
 
-      await apiClient.updateAudit(audit.id, updateData);
+      const { error } = await supabase.from('audits').update(updateData).eq('id', audit.id);
+      if (error) throw error;
       setCurrentStatus(newStatus);
       showSuccess(`Statut de l'audit mis à jour: ${statusLabels[newStatus]}`);
       onUpdate();
     } catch (error: any) {
-      showError("Erreur lors de la mise à jour du statut: " + error.message);
+      showError("Erreur lors de la mise à jour du statut: " + (error?.message || error));
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -628,19 +634,18 @@ const AuditDetailsDialog = ({
       const conformitiesCount = updatedFindings.filter(f => f.type === 'conformité').length;
       const opportunitiesCount = updatedFindings.filter(f => f.type === 'opportunité').length;
       
-      // Mettre à jour l'audit avec les nouveaux constats et compteurs
-      await apiClient.updateAudit(audit.id, {
+      const { error } = await supabase.from('audits').update({
         findings: JSON.stringify(updatedFindings),
         non_conformities_count: nonConformitiesCount,
         conformities_count: conformitiesCount,
         opportunities_count: opportunitiesCount,
-      });
-      
+      }).eq('id', audit.id);
+      if (error) throw error;
       showSuccess("Constat ajouté avec succès");
       setIsAddingFinding(false);
       onUpdate();
     } catch (error: any) {
-      showError("Erreur lors de l'ajout du constat: " + error.message);
+      showError("Erreur lors de l'ajout du constat: " + (error?.message || error));
     }
   };
 
@@ -654,83 +659,86 @@ const AuditDetailsDialog = ({
       const conformitiesCount = updatedFindings.filter(f => f.type === 'conformité').length;
       const opportunitiesCount = updatedFindings.filter(f => f.type === 'opportunité').length;
       
-      await apiClient.updateAudit(audit.id, {
+      const { error } = await supabase.from('audits').update({
         findings: JSON.stringify(updatedFindings),
         non_conformities_count: nonConformitiesCount,
         conformities_count: conformitiesCount,
         opportunities_count: opportunitiesCount,
-      });
-      
+      }).eq('id', audit.id);
+      if (error) throw error;
       showSuccess("Constat supprimé");
       onUpdate();
     } catch (error: any) {
-      showError("Erreur lors de la suppression: " + error.message);
+      showError("Erreur lors de la suppression: " + (error?.message || error));
     }
   };
 
   // Gestion des checklists
   const handleAddChecklist = async (checklistData: Omit<AuditChecklist, 'id' | 'audit_id' | 'created_at' | 'updated_at'>) => {
     try {
-      const newChecklist = await apiClient.createAuditChecklist(audit.id, checklistData);
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { data: newChecklist, error } = await supabase.from('audit_checklists').insert([{ ...checklistData, id, audit_id: audit.id }]).select().single();
+      if (error) throw error;
       setChecklists([...checklists, newChecklist]);
       showSuccess("Item de checklist ajouté");
       setIsAddingChecklist(false);
       onUpdate();
     } catch (error: any) {
-      showError("Erreur lors de l'ajout: " + error.message);
+      showError("Erreur lors de l'ajout: " + (error?.message || error));
     }
   };
 
   const handleDeleteChecklist = async (checklistId: string) => {
     try {
-      await apiClient.deleteAuditChecklist(checklistId);
+      const { error } = await supabase.from('audit_checklists').delete().eq('id', checklistId);
+      if (error) throw error;
       setChecklists(checklists.filter(c => c.id !== checklistId));
       showSuccess("Item de checklist supprimé");
       onUpdate();
     } catch (error: any) {
-      showError("Erreur lors de la suppression: " + error.message);
+      showError("Erreur lors de la suppression: " + (error?.message || error));
     }
   };
 
-  // Gestion des plans d'action
   const handleAddActionPlan = async (actionPlanData: Omit<AuditActionPlan, 'id' | 'audit_id' | 'created_at' | 'updated_at' | 'created_by'>) => {
     try {
-      const newActionPlan = await apiClient.createAuditActionPlan(audit.id, actionPlanData);
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { data: newActionPlan, error } = await supabase.from('audit_action_plans').insert([{ ...actionPlanData, id, audit_id: audit.id }]).select().single();
+      if (error) throw error;
       setActionPlans([...actionPlans, newActionPlan]);
       showSuccess("Plan d'action ajouté");
       setIsAddingActionPlan(false);
       onUpdate();
     } catch (error: any) {
-      showError("Erreur lors de l'ajout: " + error.message);
+      showError("Erreur lors de l'ajout: " + (error?.message || error));
     }
   };
 
   const handleDeleteActionPlan = async (actionPlanId: string) => {
     try {
-      await apiClient.deleteAuditActionPlan(actionPlanId);
+      const { error } = await supabase.from('audit_action_plans').delete().eq('id', actionPlanId);
+      if (error) throw error;
       setActionPlans(actionPlans.filter(p => p.id !== actionPlanId));
       showSuccess("Plan d'action supprimé");
       onUpdate();
     } catch (error: any) {
-      showError("Erreur lors de la suppression: " + error.message);
+      showError("Erreur lors de la suppression: " + (error?.message || error));
     }
   };
 
-  // Charger les checklists et plans d'action
   useEffect(() => {
     const loadChecklistsAndActionPlans = async () => {
       try {
-        const [checklistsData, actionPlansData] = await Promise.all([
-          apiClient.getAuditChecklists(audit.id),
-          apiClient.getAuditActionPlans(audit.id),
+        const [checklistsRes, actionPlansRes] = await Promise.all([
+          supabase.from('audit_checklists').select('*').eq('audit_id', audit.id),
+          supabase.from('audit_action_plans').select('*').eq('audit_id', audit.id),
         ]);
-        setChecklists(checklistsData);
-        setActionPlans(actionPlansData);
+        setChecklists(checklistsRes.data || []);
+        setActionPlans(actionPlansRes.data || []);
       } catch (error: any) {
         console.error("Erreur lors du chargement:", error);
       }
     };
-    
     if (isOpen) {
       loadChecklistsAndActionPlans();
     }

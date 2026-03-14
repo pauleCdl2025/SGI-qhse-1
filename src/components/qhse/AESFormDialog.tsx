@@ -9,8 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Icon } from "@/components/Icon";
 import { AES, AgentStatut, TypeExposition } from '@/types';
-import { apiClient } from "@/integrations/api/client";
 import { showError, showSuccess } from '@/utils/toast';
+import { supabase } from "@/integrations/supabase/client";
 
 interface AESFormDialogProps {
   isOpen: boolean;
@@ -284,10 +284,13 @@ export const AESFormDialog = ({ isOpen, onClose, aes, currentUserId }: AESFormDi
       };
 
       if (aes) {
-        await apiClient.updateAES(aes.id, aesData);
+        const { error } = await supabase.from('aes').update(aesData).eq('id', aes.id);
+        if (error) throw error;
         showSuccess("AES mis à jour avec succès.");
       } else {
-        await apiClient.createAES(aesData);
+        const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const { error } = await supabase.from('aes').insert([{ ...aesData, id }]);
+        if (error) throw error;
         showSuccess("AES créé avec succès.");
       }
       onClose();

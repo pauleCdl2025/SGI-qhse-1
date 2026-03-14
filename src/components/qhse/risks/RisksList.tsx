@@ -545,8 +545,13 @@ const RiskDetailsDialog = ({ risk, isOpen, onClose, onUpdate, onDelete, currentU
   const fetchActions = async () => {
     try {
       setLoadingActions(true);
-      const data = await apiClient.getRiskActions(risk.id);
-      setActions(data.map((action: any) => ({
+      const { data, error } = await supabase
+        .from('risk_actions')
+        .select('*')
+        .eq('risk_id', risk.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setActions((data || []).map((action: any) => ({
         ...action,
         due_date: action.due_date ? new Date(action.due_date) : undefined,
         completion_date: action.completion_date ? new Date(action.completion_date) : undefined,
@@ -555,9 +560,8 @@ const RiskDetailsDialog = ({ risk, isOpen, onClose, onUpdate, onDelete, currentU
       })));
     } catch (error: any) {
       console.error('Erreur lors du chargement des actions:', error);
-      // Ne pas afficher d'erreur si la table n'existe pas encore
-      if (!error.message?.includes('risk_actions')) {
-        showError("Erreur lors du chargement des actions: " + error.message);
+      if (!error?.message?.includes('risk_actions')) {
+        showError("Erreur lors du chargement des actions: " + (error?.message || error));
       }
     } finally {
       setLoadingActions(false);
@@ -623,24 +627,27 @@ const RiskDetailsDialog = ({ risk, isOpen, onClose, onUpdate, onDelete, currentU
 
   const handleAddAction = async (actionData: any) => {
     try {
-      await apiClient.createRiskAction(risk.id, actionData);
+      const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { error } = await supabase.from('risk_actions').insert([{ ...actionData, id, risk_id: risk.id }]);
+      if (error) throw error;
       showSuccess("Action ajoutée avec succès");
       setIsAddingAction(false);
       fetchActions();
     } catch (error: any) {
       console.error('Erreur détaillée lors de l\'ajout de l\'action:', error);
-      const errorMessage = error.response?.data?.error || error.message || 'Erreur inconnue';
+      const errorMessage = error?.message || 'Erreur inconnue';
       showError("Erreur lors de l'ajout de l'action: " + errorMessage);
     }
   };
 
   const handleUpdateAction = async (actionId: string, data: any) => {
     try {
-      await apiClient.updateRiskAction(actionId, data);
+      const { error } = await supabase.from('risk_actions').update(data).eq('id', actionId);
+      if (error) throw error;
       showSuccess("Action mise à jour avec succès");
       fetchActions();
     } catch (error: any) {
-      showError("Erreur lors de la mise à jour: " + error.message);
+      showError("Erreur lors de la mise à jour: " + (error?.message || error));
     }
   };
 
@@ -649,11 +656,12 @@ const RiskDetailsDialog = ({ risk, isOpen, onClose, onUpdate, onDelete, currentU
       return;
     }
     try {
-      await apiClient.deleteRiskAction(actionId);
+      const { error } = await supabase.from('risk_actions').delete().eq('id', actionId);
+      if (error) throw error;
       showSuccess("Action supprimée avec succès");
       fetchActions();
     } catch (error: any) {
-      showError("Erreur lors de la suppression: " + error.message);
+      showError("Erreur lors de la suppression: " + (error?.message || error));
     }
   };
 
