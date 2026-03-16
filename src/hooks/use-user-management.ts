@@ -46,7 +46,8 @@ export const useUserManagement = ({ setUsers, fetchAllProfiles }: UseUserManagem
       const createdUser = authData.user;
       if (!createdUser) throw new Error('Utilisateur non créé');
 
-      await supabase.from('profiles').upsert({
+      // Créer explicitement le profil (INSERT) plutôt qu'un upsert avec onConflict=id
+      const { error: insertError } = await supabase.from('profiles').insert([{
         id: createdUser.id,
         username,
         first_name: user.first_name,
@@ -56,10 +57,16 @@ export const useUserManagement = ({ setUsers, fetchAllProfiles }: UseUserManagem
         service: user.position,
         civility: user.civility,
         pin: user.role === 'medecin' ? user.pin : null,
-      }, { onConflict: 'id' });
+      }]);
+      if (insertError) throw insertError;
 
-      const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', createdUser.id).single();
-      if (profileError || !profile) throw profileError || new Error('Profil non trouvé');
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', createdUser.id)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) throw new Error('Profil non trouvé');
       const newUserWithId: User = {
         id: profile.id,
         username: profile.username,
