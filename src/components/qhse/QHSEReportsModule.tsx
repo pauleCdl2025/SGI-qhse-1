@@ -186,8 +186,9 @@ export const QHSEReportsModule = () => {
           .from('profiles')
           .select('*')
           .eq('id', userId)
-          .single();
-        if (profileError || !profile) throw new Error('Profil non trouvé');
+          .maybeSingle();
+        if (profileError) throw new Error(profileError.message || 'Erreur lors de la récupération du profil');
+        if (!profile) throw new Error('Profil non trouvé');
 
         const user = {
           id: profile.id,
