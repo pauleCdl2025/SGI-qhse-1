@@ -84,8 +84,15 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
           .eq('id', user.id)
           .maybeSingle();
 
-        if (profileError || !profile) {
-          console.error("Error fetching profile on init (Supabase):", profileError?.message);
+        if (profileError) {
+          console.error("Error fetching profile on init (Supabase):", profileError.message);
+          localStorage.removeItem('currentUserId');
+          setCurrentUser(null);
+          return;
+        }
+
+        if (!profile) {
+          console.warn("No profile found on init (Supabase) for user:", user.id);
           localStorage.removeItem('currentUserId');
           setCurrentUser(null);
           return;
