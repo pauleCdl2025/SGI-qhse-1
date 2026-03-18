@@ -15,6 +15,7 @@ import { ExcelImportButton } from "@/components/shared/ExcelImportButton";
 import { exportToExcel } from "@/utils/excelExport";
 import { supabase } from "@/integrations/supabase/client";
 import { showError, showSuccess } from "@/utils/toast";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface QHSEAnomaliesModuleProps {
   user: User;
@@ -516,6 +517,7 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
             </div>
           </div>
 
+          <TooltipProvider delayDuration={150}>
           <div className="overflow-x-auto">
             <table className="min-w-full text-xs md:text-sm border border-gray-300 rounded-lg bg-white">
               <thead className="bg-slate-100 border-b border-gray-300">
@@ -595,23 +597,36 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
                       <td className="px-2 py-2 border border-gray-200">{anomaly.date_verification || '-'}</td>
                       <td className="px-2 py-2 border border-gray-200">{anomaly.commentaire_verification || '-'}</td>
                       <td className="px-2 py-2 border border-gray-200">
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="h-7 w-7 border-cyan-300 text-cyan-700 hover:bg-cyan-50"
-                            onClick={() => openEditAnomalyDialog(anomaly.id)}
-                          >
-                            <Icon name="Pen" className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="h-7 w-7 border-red-300 text-red-700 hover:bg-red-50"
-                            onClick={() => deleteAnomaly(anomaly.id)}
-                          >
-                            <Icon name="Trash2" className="h-3 w-3" />
-                          </Button>
+                        <div className="flex items-center justify-center gap-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 border-cyan-300 text-cyan-800 hover:bg-cyan-50"
+                                onClick={() => openEditAnomalyDialog(anomaly.id)}
+                              >
+                                <Icon name="Pen" className="mr-2 h-4 w-4" />
+                                <span className="hidden lg:inline">Modifier</span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Modifier</TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 border-red-300 text-red-700 hover:bg-red-50"
+                                onClick={() => deleteAnomaly(anomaly.id)}
+                              >
+                                <Icon name="Trash2" className="mr-2 h-4 w-4" />
+                                <span className="hidden lg:inline">Supprimer</span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Supprimer</TooltipContent>
+                          </Tooltip>
                         </div>
                       </td>
                     </tr>
@@ -620,6 +635,7 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
               </tbody>
             </table>
           </div>
+          </TooltipProvider>
           </CardContent>
         </Card>
       </div>
