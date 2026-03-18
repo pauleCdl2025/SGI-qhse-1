@@ -14,6 +14,7 @@ interface ExcelImportButtonProps<T = any> {
   dialogTitle?: string;
   dialogDescription?: string;
   acceptedFileTypes?: string;
+  buttonClassName?: string;
 }
 
 export const ExcelImportButton = <T extends Record<string, any>>({
@@ -24,6 +25,7 @@ export const ExcelImportButton = <T extends Record<string, any>>({
   dialogTitle = "Importer des données depuis Excel",
   dialogDescription = "Sélectionnez un fichier Excel (.xlsx ou .xls) pour importer les données.",
   acceptedFileTypes = ".xlsx,.xls",
+  buttonClassName,
 }: ExcelImportButtonProps<T>) => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -83,7 +85,10 @@ export const ExcelImportButton = <T extends Record<string, any>>({
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
+          className={
+            buttonClassName ??
+            "border-orange-300 text-orange-700 hover:bg-orange-50"
+          }
           size="sm"
         >
           <Icon name="Upload" className="mr-2 h-4 w-4" />
