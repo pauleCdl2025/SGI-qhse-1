@@ -150,6 +150,15 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
     });
   }, [anomalies, priorityFilter, searchTerm]);
 
+  const setQuickStatus = async (id: string, status: "terminé" | "bloqué") => {
+    await updateAnomaly(id, {
+      etat_avancement: status,
+      ...(status === "terminé"
+        ? { date_resolution: format(new Date(), "yyyy-MM-dd") }
+        : {}),
+    });
+  };
+
   const handleExportExcel = () => {
     if (filteredAnomalies.length === 0) return;
     try {
@@ -597,17 +606,47 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
                       <td className="px-2 py-2 border border-gray-200">{anomaly.date_verification || '-'}</td>
                       <td className="px-2 py-2 border border-gray-200">{anomaly.commentaire_verification || '-'}</td>
                       <td className="px-2 py-2 border border-gray-200">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
-                                size="sm"
+                                size="icon"
                                 variant="outline"
-                                className="h-8 px-2.5 border-cyan-300 text-cyan-800 hover:bg-cyan-50"
-                                onClick={() => openEditAnomalyDialog(anomaly.id)}
+                                className="h-7 w-7 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                onClick={() => setQuickStatus(anomaly.id, "terminé")}
+                                aria-label="Marquer comme terminé"
                               >
-                                <Icon name="Pen" className="mr-2 h-4 w-4" />
-                                <span className="hidden lg:inline">Modifier</span>
+                                <Icon name="CheckCircle2" className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Terminé</TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7 border-amber-300 text-amber-800 hover:bg-amber-50"
+                                onClick={() => setQuickStatus(anomaly.id, "bloqué")}
+                                aria-label="Marquer comme bloqué"
+                              >
+                                <Icon name="Ban" className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Bloqué</TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7 border-cyan-300 text-cyan-800 hover:bg-cyan-50"
+                                onClick={() => openEditAnomalyDialog(anomaly.id)}
+                                aria-label="Modifier"
+                              >
+                                <Icon name="Pen" className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>Modifier</TooltipContent>
@@ -616,13 +655,13 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
-                                size="sm"
+                                size="icon"
                                 variant="outline"
-                                className="h-8 px-2.5 border-red-300 text-red-700 hover:bg-red-50"
+                                className="h-7 w-7 border-red-300 text-red-700 hover:bg-red-50"
                                 onClick={() => deleteAnomaly(anomaly.id)}
+                                aria-label="Supprimer"
                               >
-                                <Icon name="Trash2" className="mr-2 h-4 w-4" />
-                                <span className="hidden lg:inline">Supprimer</span>
+                                <Icon name="Trash2" className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>Supprimer</TooltipContent>
