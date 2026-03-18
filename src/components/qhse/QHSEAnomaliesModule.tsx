@@ -393,31 +393,33 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
 
   return (
     <>
-      <Card className="card-hover border-0 shadow-xl bg-gradient-to-r from-orange-50 via-amber-50 to-white">
-        <CardHeader className="pb-4 border-b border-orange-100/70 bg-gradient-to-r from-orange-500/10 via-amber-400/10 to-transparent rounded-t-xl">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white shadow-md">
-                <Icon name="AlertTriangle" className="h-4 w-4" />
-              </span>
-              <div className="flex flex-col">
-                <span className="text-lg md:text-xl font-bold text-slate-800">Anomalies QHSE</span>
-                <span className="text-[11px] uppercase tracking-wide text-orange-500 font-semibold">
-                  Qualité · Hygiène · Sécurité · Environnement
+      {/* Break out of Dashboard max width for large tables */}
+      <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen px-4 md:px-6 lg:px-8">
+        <Card className="card-hover border-0 shadow-xl bg-gradient-to-r from-orange-50 via-amber-50 to-white w-full">
+          <CardHeader className="pb-4 border-b border-orange-100/70 bg-gradient-to-r from-orange-500/10 via-amber-400/10 to-transparent rounded-t-xl">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white shadow-md">
+                  <Icon name="AlertTriangle" className="h-4 w-4" />
                 </span>
-              </div>
-            </CardTitle>
-            <Button
-              size="sm"
-              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 shadow-md"
-              onClick={openNewAnomalyDialog}
-            >
-              <Icon name="Plus" className="mr-2 h-4 w-4" />
-              Nouvelle anomalie
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="bg-white rounded-b-xl">
+                <div className="flex flex-col">
+                  <span className="text-lg md:text-xl font-bold text-slate-800">Anomalies QHSE</span>
+                  <span className="text-[11px] uppercase tracking-wide text-orange-500 font-semibold">
+                    Qualité · Hygiène · Sécurité · Environnement
+                  </span>
+                </div>
+              </CardTitle>
+              <Button
+                size="sm"
+                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 shadow-md"
+                onClick={openNewAnomalyDialog}
+              >
+                <Icon name="Plus" className="mr-2 h-4 w-4" />
+                Nouvelle anomalie
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="bg-white rounded-b-xl">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <p className="text-sm text-gray-500 max-w-2xl">
               Suivi détaillé des anomalies et des actions correctives. Utilisez la recherche et les filtres pour retrouver rapidement une situation.
@@ -618,8 +620,9 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
       <Dialog open={isAnomalyDialogOpen} onOpenChange={setIsAnomalyDialogOpen}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
