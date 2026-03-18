@@ -11,13 +11,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import jsPDF from "jspdf";
+import { ExcelImportButton } from "@/components/shared/ExcelImportButton";
+import { exportToExcel } from "@/utils/excelExport";
+import { supabase } from "@/integrations/supabase/client";
+import { showError, showSuccess } from "@/utils/toast";
 
 interface QHSEAnomaliesModuleProps {
   user: User;
 }
 
 export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
-  const { anomalies, createAnomaly, updateAnomaly, deleteAnomaly } = useAnomalies();
+  const { anomalies, createAnomaly, updateAnomaly, deleteAnomaly, fetchAnomalies } = useAnomalies();
   const [isAnomalyDialogOpen, setIsAnomalyDialogOpen] = useState(false);
   const [editingAnomalyId, setEditingAnomalyId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -144,6 +148,138 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
       );
     });
   }, [anomalies, priorityFilter, searchTerm]);
+
+  const handleExportExcel = () => {
+    if (filteredAnomalies.length === 0) return;
+    try {
+      const rows = filteredAnomalies.map(a => ({
+        date_anomalie: a.date_anomalie ?? "",
+        lieu: a.lieu ?? "",
+        source: a.source ?? "",
+        description: a.description ?? "",
+        thematique: a.thematique ?? "",
+        sous_thematique: a.sous_thematique ?? "",
+        responsable_action: a.responsable_action ?? "",
+        message_prise_en_compte: a.message_prise_en_compte ?? "",
+        actions_a_mettre_en_oeuvre: a.actions_a_mettre_en_oeuvre ?? "",
+        devis_a_faire: a.devis_a_faire ? "Oui" : "Non",
+        montant_devis: a.montant_devis ?? "",
+        commentaires: a.commentaires ?? "",
+        impact_patient: a.impact_patient ?? "",
+        impact_structure: a.impact_structure ?? "",
+        niveau_priorite: a.niveau_priorite ?? "",
+        date_limite: a.date_limite ?? "",
+        etat_avancement: a.etat_avancement ?? "",
+        date_resolution: a.date_resolution ?? "",
+        date_verification: a.date_verification ?? "",
+        commentaire_verification: a.commentaire_verification ?? "",
+      }));
+
+      const headers = [
+        { key: "date_anomalie" as const, label: "Date" },
+        { key: "lieu" as const, label: "Lieux" },
+        { key: "source" as const, label: "Source" },
+        { key: "description" as const, label: "Description de l'anomalie" },
+        { key: "thematique" as const, label: "Thématique" },
+        { key: "sous_thematique" as const, label: "Sous thématique" },
+        { key: "responsable_action" as const, label: "Responsable de l'action" },
+        { key: "message_prise_en_compte" as const, label: "Message de prise en compte" },
+        { key: "actions_a_mettre_en_oeuvre" as const, label: "Actions à mettre en œuvre" },
+        { key: "devis_a_faire" as const, label: "Devis à faire ?" },
+        { key: "montant_devis" as const, label: "Montant du devis ?" },
+        { key: "commentaires" as const, label: "Commentaires" },
+        { key: "impact_patient" as const, label: "Impact sur le patient" },
+        { key: "impact_structure" as const, label: "Impact sur le fonctionnement" },
+        { key: "niveau_priorite" as const, label: "Niveau de priorité" },
+        { key: "date_limite" as const, label: "Date limite de traitement" },
+        { key: "etat_avancement" as const, label: "État d'avancement des actions" },
+        { key: "date_resolution" as const, label: "Date de résolution effective" },
+        { key: "date_verification" as const, label: "Date de la vérification" },
+        { key: "commentaire_verification" as const, label: "Commentaire de vérification" },
+      ];
+
+      exportToExcel(rows, headers as any, "anomalies-qhse", "Anomalies QHSE");
+      showSuccess("Export Excel généré.");
+    } catch (e: any) {
+      showError(e?.message || "Erreur lors de l'export Excel.");
+    }
+  };
+
+  const handleImportExcel = async (rows: any[]) => {
+    try {
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !authUser) {
+        showError("Session expirée. Veuillez vous reconnecter.");
+        return;
+      }
+
+      const normalizePriority = (value: any): "faible" | "moyenne" | "haute" | "critique" => {
+        const v = String(value ?? "").trim().toLowerCase();
+        if (v === "faible" || v === "moyenne" || v === "haute" || v === "critique") return v as any;
+        return "moyenne";
+      };
+
+      const toBool = (value: any): boolean => {
+        const v = String(value ?? "").trim().toLowerCase();
+        return v === "1" || v === "true" || v === "oui" || v === "yes";
+      };
+
+      const toNumberOrNull = (value: any): number | null => {
+        if (value === null || value === undefined || value === "") return null;
+        const n = Number(String(value).replace(",", "."));
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const idForRow = () =>
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      const payloads = rows.map((r: any) => ({
+        id: idForRow(),
+        date_anomalie: r.date_anomalie ?? r.Date ?? r.date ?? null,
+        lieu: r.lieu ?? r.Lieux ?? r.lieux ?? null,
+        source: r.source ?? r.Source ?? null,
+        description: r.description ?? r["Description de l'anomalie"] ?? r.Description ?? null,
+        thematique: r.thematique ?? r["Thématique"] ?? null,
+        sous_thematique: r.sous_thematique ?? r["Sous thématique"] ?? null,
+        responsable_action: r.responsable_action ?? r["Responsable de l'action"] ?? null,
+        message_prise_en_compte: r.message_prise_en_compte ?? r["Message de prise en compte"] ?? null,
+        actions_a_mettre_en_oeuvre: r.actions_a_mettre_en_oeuvre ?? r["Actions à mettre en œuvre"] ?? null,
+        devis_a_faire: toBool(r.devis_a_faire ?? r["Devis à faire ?"]),
+        montant_devis: toNumberOrNull(r.montant_devis ?? r["Montant du devis ?"]),
+        commentaires: r.commentaires ?? r.Commentaires ?? null,
+        impact_patient: r.impact_patient ?? r["Impact sur le patient"] ?? null,
+        impact_structure: r.impact_structure ?? r["Impact sur le fonctionnement"] ?? null,
+        niveau_priorite: normalizePriority(r.niveau_priorite ?? r["Niveau de priorité"]),
+        date_limite: r.date_limite ?? r["Date limite de traitement"] ?? null,
+        etat_avancement: r.etat_avancement ?? r["État d'avancement des actions"] ?? null,
+        date_resolution: r.date_resolution ?? r["Date de résolution effective"] ?? null,
+        date_verification: r.date_verification ?? r["Date de la vérification"] ?? null,
+        commentaire_verification: r.commentaire_verification ?? r["Commentaire de vérification"] ?? null,
+        created_by: authUser.id,
+      }));
+
+      // Validation minimale: date + lieu + description
+      const invalid = payloads.find(p => !p.date_anomalie || !p.lieu || !p.description);
+      if (invalid) {
+        showError("Import: certaines lignes n'ont pas Date/Lieux/Description.");
+        return;
+      }
+
+      const { error } = await supabase.from("qhse_anomalies").insert(payloads);
+      if (error) throw error;
+
+      showSuccess(`Import terminé (${payloads.length} lignes).`);
+      await fetchAnomalies();
+    } catch (e: any) {
+      showError(e?.message || "Erreur lors de l'import Excel.");
+    }
+  };
 
   const handleExportReport = async () => {
     if (filteredAnomalies.length === 0) return;
@@ -312,6 +448,23 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
                 <Icon name={isGeneratingReport ? "Clock" : "Download"} className={`mr-2 h-4 w-4 ${isGeneratingReport ? "animate-spin" : ""}`} />
                 {isGeneratingReport ? "Génération..." : "Exporter le rapport"}
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                onClick={handleExportExcel}
+                disabled={filteredAnomalies.length === 0}
+              >
+                <Icon name="FileSpreadsheet" className="mr-2 h-4 w-4" />
+                Exporter Excel
+              </Button>
+              <ExcelImportButton
+                onImport={handleImportExcel}
+                requiredFields={["Date", "Lieux", "Description de l'anomalie"]}
+                buttonText="Importer Excel"
+                dialogTitle="Importer des anomalies depuis Excel"
+                dialogDescription="Importe des anomalies QHSE depuis un fichier Excel. Colonnes requises: Date, Lieux, Description de l'anomalie."
+              />
             </div>
           </div>
 
