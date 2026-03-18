@@ -107,10 +107,15 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
       const startTime = format(now, "yyyy-MM-dd HH:mm:ss");
       
       const technicianName = user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : '';
+      const id =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const { data, error } = await supabase
         .from('daily_rounds')
         .insert([
           {
+            id,
             technician_id: user.id,
             technician_name: technicianName,
             round_type: roundType,
