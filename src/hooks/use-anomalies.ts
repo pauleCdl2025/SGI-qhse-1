@@ -33,6 +33,11 @@ export const useAnomalies = () => {
   const [anomalies, setAnomalies] = useState<QHSEAnomaly[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const newId = () =>
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
   const fetchAnomalies = async () => {
     try {
       setLoading(true);
@@ -79,6 +84,7 @@ export const useAnomalies = () => {
 
       const { error } = await supabase.from('qhse_anomalies').insert([
         {
+          id: newId(),
           ...payload,
           created_by: user.id,
         },
@@ -92,7 +98,12 @@ export const useAnomalies = () => {
       await fetchAnomalies();
     } catch (error: any) {
       console.error('Error creating anomaly:', error);
-      showError("Erreur lors de la création de l'anomalie.");
+      showError(
+        error?.message ||
+          error?.details ||
+          error?.hint ||
+          "Erreur lors de la création de l'anomalie."
+      );
     }
   };
 
