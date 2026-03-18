@@ -15,11 +15,22 @@ export const resetUserPassword = async (userId: string, newPassword: string): Pr
       showSuccess("Mot de passe mis à jour.");
       return true;
     }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+    if (sessionError || !accessToken) {
+      showError("Session invalide. Veuillez vous reconnecter puis réessayer.");
+      return false;
+    }
+
     const { data, error } = await supabase.functions.invoke('reset-user-password', {
       body: { userId, newPassword },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     });
     if (error) {
-      showError("Réinitialisation du mot de passe d'un autre utilisateur nécessite une Edge Function Supabase (reset-user-password) ou un backend.");
+      showError(error.message || "Échec de l'appel de la fonction reset-user-password.");
       return false;
     }
     if (data?.success) return true;
