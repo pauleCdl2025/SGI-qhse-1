@@ -143,6 +143,10 @@ export const CameraAccessRequestForm = ({ user, onRequestSubmitted }: CameraAcce
       }
 
       const requestData: any = {
+        id:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         requester_id: user.id,
         requester_name: requesterName,
         requester_service: requesterService,
