@@ -52,12 +52,26 @@ export const TicketComments = ({ incident, currentUser, onCommentAdded }: Ticket
 
     try {
       setIsSubmitting(true);
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+      const userId = authUser?.id || currentUser.id;
+      if (!userId) {
+        throw new Error("Utilisateur non identifié.");
+      }
+
       const userName = currentUser.first_name && currentUser.last_name 
         ? `${currentUser.first_name} ${currentUser.last_name}`
         : currentUser.name || currentUser.username;
 
       const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const row = { id, incident_id: incident.id, comment: newComment.trim(), user_name: userName };
+      const row = {
+        id,
+        incident_id: incident.id,
+        comment: newComment.trim(),
+        user_name: userName,
+        user_id: userId,
+      };
       const { data: comment, error } = await supabase.from('incident_comments').insert([row]).select().single();
       if (error) throw error;
 
