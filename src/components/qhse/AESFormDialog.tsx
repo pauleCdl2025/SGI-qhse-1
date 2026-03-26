@@ -226,6 +226,14 @@ export const AESFormDialog = ({ isOpen, onClose, aes, currentUserId }: AESFormDi
 
     setIsSubmitting(true);
     try {
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+      const createdBy = currentUserId || authUser?.id;
+      if (!createdBy) {
+        throw new Error("Utilisateur non identifié.");
+      }
+
       const aesData = {
         agent_nom,
         agent_prenom,
@@ -281,10 +289,12 @@ export const AESFormDialog = ({ isOpen, onClose, aes, currentUserId }: AESFormDi
         dossier_cloture,
         date_cloture: date_cloture || undefined,
         nom_signature_qhse: nom_signature_qhse || undefined,
+        created_by: createdBy,
       };
 
       if (aes) {
-        const { error } = await supabase.from('aes').update(aesData).eq('id', aes.id);
+        const { created_by, ...updateData } = aesData;
+        const { error } = await supabase.from('aes').update(updateData).eq('id', aes.id);
         if (error) throw error;
         showSuccess("AES mis à jour avec succès.");
       } else {
@@ -296,7 +306,7 @@ export const AESFormDialog = ({ isOpen, onClose, aes, currentUserId }: AESFormDi
       onClose();
     } catch (error: any) {
       console.error("Error saving AES:", error);
-      showError("Erreur lors de l'enregistrement de l'AES.");
+      showError(error?.message || "Erreur lors de l'enregistrement de l'AES.");
     } finally {
       setIsSubmitting(false);
     }
