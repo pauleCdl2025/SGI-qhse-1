@@ -248,7 +248,8 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
         value
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "")
-          .replace(/['’`"]/g, "")
+          // Remplacer les apostrophes par un espace pour éviter "l'anomalie" -> "lanomalie"
+          .replace(/['’`"]/g, " ")
           .replace(/\s+/g, " ")
           .trim()
           .toLowerCase();
