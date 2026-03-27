@@ -39,28 +39,38 @@ export const importFromExcel = async <T = any>(
               .trim()
               .toLowerCase();
 
-          // Détecter la ligne d'en-tête (souvent décalée / précédée de lignes vides)
-          // On lit d'abord en mode "tableau" (header: 1) pour repérer la 1ère ligne qui contient Date/Lieux/Description.
-          const preview = XLSX.utils.sheet_to_json<any[]>(worksheet, {
-            header: 1,
-            raw: false,
-            defval: '',
-            blankrows: false,
-          });
+          // Détecter la ligne d'en-tête (souvent décalée / précédée de lignes vides / cellules fusionnées)
+          // Ici on scanne directement les cellules (plus fiable que sheet_to_json(header: 1) sur certains fichiers).
+          const rangeRef = worksheet['!ref'];
+          const decoded = rangeRef ? XLSX.utils.decode_range(rangeRef) : null;
+          const maxRow = decoded ? Math.min(decoded.e.r, 200) : 200;
+          const maxCol = decoded ? Math.min(decoded.e.c, 80) : 80;
 
-          const maxScan = Math.min(preview.length, 50);
-          let headerRowIndex = 0;
-          for (let i = 0; i < maxScan; i++) {
-            const row = Array.isArray(preview[i]) ? preview[i] : [];
-            const cells = row.map(normalizeHeaderCell).filter(Boolean);
-            if (cells.length === 0) continue;
+          const rowCells = (r: number) => {
+            const cells: string[] = [];
+            for (let c = 0; c <= maxCol; c++) {
+              const addr = XLSX.utils.encode_cell({ r, c });
+              const cell = (worksheet as any)[addr];
+              const v = cell?.w ?? cell?.v ?? '';
+              const n = normalizeHeaderCell(v);
+              if (n) cells.push(n);
+            }
+            return cells;
+          };
 
+          const looksLikeHeader = (cells: string[]) => {
             const hasDate = cells.some(c => c === 'date' || c.includes('date anomalie') || c === 'date anomalie');
             const hasLieu = cells.some(c => c === 'lieux' || c === 'lieu' || c.includes('lieux'));
-            const hasDesc = cells.some(c => c.includes("description") || c.includes('anomalie'));
+            const hasDesc = cells.some(c => c.includes('description'));
+            return hasDate && hasLieu && hasDesc;
+          };
 
-            if (hasDate && hasLieu && hasDesc) {
-              headerRowIndex = i;
+          let headerRowIndex = 0;
+          for (let r = 0; r <= maxRow; r++) {
+            const cells = rowCells(r);
+            if (cells.length === 0) continue;
+            if (looksLikeHeader(cells)) {
+              headerRowIndex = r;
               break;
             }
           }
