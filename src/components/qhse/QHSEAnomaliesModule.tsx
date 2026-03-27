@@ -312,7 +312,35 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
       const validPayloads = payloads.filter(p => p.date_anomalie && p.lieu && p.description);
       const skippedCount = payloads.length - validPayloads.length;
       if (validPayloads.length === 0) {
-        throw new Error("Aucune ligne valide à importer (Date/Lieux/Description requis).");
+        const firstRow =
+          rows.find((r: any) => r && typeof r === "object" && Object.keys(r).length > 0) ||
+          rows[0] ||
+          {};
+        const detectedColumns = Object.keys(firstRow || {}).slice(0, 15);
+
+        const firstDate = pick(firstRow, ["Date", "date", "date anomalie", "date_anomalie"]);
+        const firstLieu = pick(firstRow, ["Lieux", "lieu", "lieux", "service", "zone"]);
+        const firstDescription = pick(firstRow, [
+          "Description de l'anomalie",
+          "Description de l anomalie",
+          "Description anomalie",
+          "description",
+          "description anomalie",
+        ]);
+
+        const short = (value: any) => {
+          const t = cleanTextOrNull(value);
+          if (!t) return "-";
+          return t.length > 40 ? `${t.slice(0, 40)}...` : t;
+        };
+
+        throw new Error(
+          `Aucune ligne valide à importer (Date/Lieux/Description requis).\n` +
+            `Colonnes détectées (top 15): ${detectedColumns.length ? detectedColumns.join(", ") : "-"}` +
+            `\nExemples (1ère ligne): Date=${short(firstDate)}; Lieux=${short(firstLieu)}; Description=${short(
+              firstDescription
+            )}`
+        );
       }
 
       const { error } = await supabase.from("qhse_anomalies").insert(validPayloads);
