@@ -244,6 +244,28 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
         return Number.isFinite(n) ? n : null;
       };
 
+      const normalizeKey = (value: string) =>
+        value
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/['’`"]/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toLowerCase();
+
+      const pick = (row: any, aliases: string[]) => {
+        if (!row || typeof row !== "object") return null;
+        const keys = Object.keys(row);
+        const normalizedAliases = aliases.map(normalizeKey);
+        for (const key of keys) {
+          const nk = normalizeKey(key);
+          if (normalizedAliases.includes(nk)) {
+            return row[key];
+          }
+        }
+        return null;
+      };
+
       const idForRow = () =>
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
@@ -251,26 +273,32 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
 
       const payloads = rows.map((r: any) => ({
         id: idForRow(),
-        date_anomalie: r.date_anomalie ?? r.Date ?? r.date ?? null,
-        lieu: r.lieu ?? r.Lieux ?? r.lieux ?? null,
-        source: r.source ?? r.Source ?? null,
-        description: r.description ?? r["Description de l'anomalie"] ?? r.Description ?? null,
-        thematique: r.thematique ?? r["Thématique"] ?? null,
-        sous_thematique: r.sous_thematique ?? r["Sous thématique"] ?? null,
-        responsable_action: r.responsable_action ?? r["Responsable de l'action"] ?? null,
-        message_prise_en_compte: r.message_prise_en_compte ?? r["Message de prise en compte"] ?? null,
-        actions_a_mettre_en_oeuvre: r.actions_a_mettre_en_oeuvre ?? r["Actions à mettre en œuvre"] ?? null,
-        devis_a_faire: toBool(r.devis_a_faire ?? r["Devis à faire ?"]),
-        montant_devis: toNumberOrNull(r.montant_devis ?? r["Montant du devis ?"]),
-        commentaires: r.commentaires ?? r.Commentaires ?? null,
-        impact_patient: r.impact_patient ?? r["Impact sur le patient"] ?? null,
-        impact_structure: r.impact_structure ?? r["Impact sur le fonctionnement"] ?? null,
-        niveau_priorite: normalizePriority(r.niveau_priorite ?? r["Niveau de priorité"]),
-        date_limite: r.date_limite ?? r["Date limite de traitement"] ?? null,
-        etat_avancement: r.etat_avancement ?? r["État d'avancement des actions"] ?? null,
-        date_resolution: r.date_resolution ?? r["Date de résolution effective"] ?? null,
-        date_verification: r.date_verification ?? r["Date de la vérification"] ?? null,
-        commentaire_verification: r.commentaire_verification ?? r["Commentaire de vérification"] ?? null,
+        date_anomalie: pick(r, ["Date", "date", "date anomalie", "date_anomalie"]),
+        lieu: pick(r, ["Lieux", "lieu", "lieux", "service", "zone"]),
+        source: pick(r, ["Source", "source"]),
+        description: pick(r, [
+          "Description de l'anomalie",
+          "Description de l anomalie",
+          "Description anomalie",
+          "description",
+          "description anomalie",
+        ]),
+        thematique: pick(r, ["Thématique", "thematique"]),
+        sous_thematique: pick(r, ["Sous thématique", "sous thematique", "sous_thematique"]),
+        responsable_action: pick(r, ["Responsable de l'action", "responsable action", "responsable_action"]),
+        message_prise_en_compte: pick(r, ["Message de prise en compte", "message prise en compte", "message_prise_en_compte"]),
+        actions_a_mettre_en_oeuvre: pick(r, ["Actions à mettre en œuvre", "actions a mettre en oeuvre", "actions_a_mettre_en_oeuvre"]),
+        devis_a_faire: toBool(pick(r, ["Devis à faire ?", "devis a faire", "devis_a_faire"])),
+        montant_devis: toNumberOrNull(pick(r, ["Montant du devis ?", "montant devis", "montant_devis"])),
+        commentaires: pick(r, ["Commentaires", "commentaires"]),
+        impact_patient: pick(r, ["Impact sur le patient", "impact patient", "impact_patient"]),
+        impact_structure: pick(r, ["Impact sur le fonctionnement", "impact fonctionnement", "impact_structure"]),
+        niveau_priorite: normalizePriority(pick(r, ["Niveau de priorité", "niveau priorite", "niveau_priorite"])),
+        date_limite: pick(r, ["Date limite de traitement", "date limite", "date_limite"]),
+        etat_avancement: pick(r, ["État d'avancement des actions", "etat avancement", "etat_avancement"]),
+        date_resolution: pick(r, ["Date de résolution effective", "date resolution", "date_resolution"]),
+        date_verification: pick(r, ["Date de la vérification", "date verification", "date_verification"]),
+        commentaire_verification: pick(r, ["Commentaire de vérification", "commentaire verification", "commentaire_verification"]),
         created_by: authUser.id,
       }));
 
@@ -472,10 +500,9 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
               </Button>
               <ExcelImportButton
                 onImport={handleImportExcel}
-                requiredFields={["Date", "Lieux", "Description de l'anomalie"]}
                 buttonText="Importer Excel"
                 dialogTitle="Importer des anomalies depuis Excel"
-                dialogDescription="Importe des anomalies QHSE depuis un fichier Excel. Colonnes requises: Date, Lieux, Description de l'anomalie."
+                dialogDescription="Importe des anomalies QHSE depuis un fichier Excel. Les intitulés de colonnes sont tolérants (Date/Lieux/Description et variantes)."
               />
             </div>
           </div>
