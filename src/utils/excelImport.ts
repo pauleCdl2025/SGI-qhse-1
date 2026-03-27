@@ -29,11 +29,48 @@ export const importFromExcel = async <T = any>(
           
           const sheetName = sheetNames[sheetIndex] || sheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
+
+          const normalizeHeaderCell = (value: any) =>
+            String(value ?? '')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/['’`"]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .toLowerCase();
+
+          // Détecter la ligne d'en-tête (souvent décalée / précédée de lignes vides)
+          // On lit d'abord en mode "tableau" (header: 1) pour repérer la 1ère ligne qui contient Date/Lieux/Description.
+          const preview = XLSX.utils.sheet_to_json<any[]>(worksheet, {
+            header: 1,
+            raw: false,
+            defval: '',
+            blankrows: false,
+          });
+
+          const maxScan = Math.min(preview.length, 50);
+          let headerRowIndex = 0;
+          for (let i = 0; i < maxScan; i++) {
+            const row = Array.isArray(preview[i]) ? preview[i] : [];
+            const cells = row.map(normalizeHeaderCell).filter(Boolean);
+            if (cells.length === 0) continue;
+
+            const hasDate = cells.some(c => c === 'date' || c.includes('date anomalie') || c === 'date anomalie');
+            const hasLieu = cells.some(c => c === 'lieux' || c === 'lieu' || c.includes('lieux'));
+            const hasDesc = cells.some(c => c.includes("description") || c.includes('anomalie'));
+
+            if (hasDate && hasLieu && hasDesc) {
+              headerRowIndex = i;
+              break;
+            }
+          }
           
-          // Convertir en JSON
+          // Convertir en JSON en prenant la ligne détectée comme en-tête
           const jsonData = XLSX.utils.sheet_to_json<T>(worksheet, {
             raw: false, // Convertir les nombres en chaînes
             defval: null, // Valeur par défaut pour les cellules vides
+            blankrows: false,
+            range: headerRowIndex, // démarre à la ligne d'en-tête
           });
           
           resolve(jsonData);
