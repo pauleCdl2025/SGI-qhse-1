@@ -271,48 +271,56 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+      const cleanTextOrNull = (value: any) => {
+        const text = String(value ?? "").trim();
+        return text ? text : null;
+      };
+
       const payloads = rows.map((r: any) => ({
         id: idForRow(),
-        date_anomalie: pick(r, ["Date", "date", "date anomalie", "date_anomalie"]),
-        lieu: pick(r, ["Lieux", "lieu", "lieux", "service", "zone"]),
-        source: pick(r, ["Source", "source"]),
-        description: pick(r, [
+        date_anomalie: cleanTextOrNull(pick(r, ["Date", "date", "date anomalie", "date_anomalie"])),
+        lieu: cleanTextOrNull(pick(r, ["Lieux", "lieu", "lieux", "service", "zone"])),
+        source: cleanTextOrNull(pick(r, ["Source", "source"])),
+        description: cleanTextOrNull(pick(r, [
           "Description de l'anomalie",
           "Description de l anomalie",
           "Description anomalie",
           "description",
           "description anomalie",
-        ]),
-        thematique: pick(r, ["Thématique", "thematique"]),
-        sous_thematique: pick(r, ["Sous thématique", "sous thematique", "sous_thematique"]),
-        responsable_action: pick(r, ["Responsable de l'action", "responsable action", "responsable_action"]),
-        message_prise_en_compte: pick(r, ["Message de prise en compte", "message prise en compte", "message_prise_en_compte"]),
-        actions_a_mettre_en_oeuvre: pick(r, ["Actions à mettre en œuvre", "actions a mettre en oeuvre", "actions_a_mettre_en_oeuvre"]),
+        ])),
+        thematique: cleanTextOrNull(pick(r, ["Thématique", "thematique"])),
+        sous_thematique: cleanTextOrNull(pick(r, ["Sous thématique", "sous thematique", "sous_thematique"])),
+        responsable_action: cleanTextOrNull(pick(r, ["Responsable de l'action", "responsable action", "responsable_action"])),
+        message_prise_en_compte: cleanTextOrNull(pick(r, ["Message de prise en compte", "message prise en compte", "message_prise_en_compte"])),
+        actions_a_mettre_en_oeuvre: cleanTextOrNull(pick(r, ["Actions à mettre en œuvre", "actions a mettre en oeuvre", "actions_a_mettre_en_oeuvre"])),
         devis_a_faire: toBool(pick(r, ["Devis à faire ?", "devis a faire", "devis_a_faire"])),
         montant_devis: toNumberOrNull(pick(r, ["Montant du devis ?", "montant devis", "montant_devis"])),
-        commentaires: pick(r, ["Commentaires", "commentaires"]),
-        impact_patient: pick(r, ["Impact sur le patient", "impact patient", "impact_patient"]),
-        impact_structure: pick(r, ["Impact sur le fonctionnement", "impact fonctionnement", "impact_structure"]),
+        commentaires: cleanTextOrNull(pick(r, ["Commentaires", "commentaires"])),
+        impact_patient: cleanTextOrNull(pick(r, ["Impact sur le patient", "impact patient", "impact_patient"])),
+        impact_structure: cleanTextOrNull(pick(r, ["Impact sur le fonctionnement", "impact fonctionnement", "impact_structure"])),
         niveau_priorite: normalizePriority(pick(r, ["Niveau de priorité", "niveau priorite", "niveau_priorite"])),
-        date_limite: pick(r, ["Date limite de traitement", "date limite", "date_limite"]),
-        etat_avancement: pick(r, ["État d'avancement des actions", "etat avancement", "etat_avancement"]),
-        date_resolution: pick(r, ["Date de résolution effective", "date resolution", "date_resolution"]),
-        date_verification: pick(r, ["Date de la vérification", "date verification", "date_verification"]),
-        commentaire_verification: pick(r, ["Commentaire de vérification", "commentaire verification", "commentaire_verification"]),
+        date_limite: cleanTextOrNull(pick(r, ["Date limite de traitement", "date limite", "date_limite"])),
+        etat_avancement: cleanTextOrNull(pick(r, ["État d'avancement des actions", "etat avancement", "etat_avancement"])),
+        date_resolution: cleanTextOrNull(pick(r, ["Date de résolution effective", "date resolution", "date_resolution"])),
+        date_verification: cleanTextOrNull(pick(r, ["Date de la vérification", "date verification", "date_verification"])),
+        commentaire_verification: cleanTextOrNull(pick(r, ["Commentaire de vérification", "commentaire verification", "commentaire_verification"])),
         created_by: authUser.id,
       }));
 
       // Validation minimale: date + lieu + description
-      const invalid = payloads.find(p => !p.date_anomalie || !p.lieu || !p.description);
-      if (invalid) {
-        showError("Import: certaines lignes n'ont pas Date/Lieux/Description.");
-        return;
+      const validPayloads = payloads.filter(p => p.date_anomalie && p.lieu && p.description);
+      const skippedCount = payloads.length - validPayloads.length;
+      if (validPayloads.length === 0) {
+        throw new Error("Aucune ligne valide à importer (Date/Lieux/Description requis).");
       }
 
-      const { error } = await supabase.from("qhse_anomalies").insert(payloads);
+      const { error } = await supabase.from("qhse_anomalies").insert(validPayloads);
       if (error) throw error;
 
-      showSuccess(`Import terminé (${payloads.length} lignes).`);
+      showSuccess(`Import terminé (${validPayloads.length} ligne${validPayloads.length > 1 ? "s" : ""}).`);
+      if (skippedCount > 0) {
+        showError(`${skippedCount} ligne${skippedCount > 1 ? "s" : ""} ignorée${skippedCount > 1 ? "s" : ""} (Date/Lieux/Description manquants).`);
+      }
       await fetchAnomalies();
     } catch (e: any) {
       showError(e?.message || "Erreur lors de l'import Excel.");
