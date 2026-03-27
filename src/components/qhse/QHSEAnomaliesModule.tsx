@@ -323,7 +323,9 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
       }
       await fetchAnomalies();
     } catch (e: any) {
-      showError(e?.message || "Erreur lors de l'import Excel.");
+      const message = e?.message || "Erreur lors de l'import Excel.";
+      showError(message);
+      throw new Error(message);
     }
   };
 
