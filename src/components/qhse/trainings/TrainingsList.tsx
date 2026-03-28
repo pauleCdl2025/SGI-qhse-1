@@ -447,8 +447,6 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
           }}
           onUpdate={handleUpdateTraining}
           onDelete={handleDeleteTraining}
-          participants={participations.filter(p => p.training_id === selectedTraining.id)}
-          users={users}
         />
       )}
     </Card>
@@ -1208,15 +1206,13 @@ const AddCompetencyDialog = ({
   );
 };
 
-// Dialog de détails de la formation
+// Dialog de détails d'une évaluation prestataire
 interface TrainingDetailsDialogProps {
   training: Training;
   isOpen: boolean;
   onClose: () => void;
   onUpdate: (trainingId: string, data: any) => void;
   onDelete: (trainingId: string) => void;
-  participants: TrainingParticipation[];
-  users?: Users;
 }
 
 const TrainingDetailsDialog = ({
@@ -1225,20 +1221,12 @@ const TrainingDetailsDialog = ({
   onClose,
   onUpdate,
   onDelete,
-  participants,
-  users,
 }: TrainingDetailsDialogProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(training.title);
-  const [category, setCategory] = useState(training.category);
   const [trainingType, setTrainingType] = useState<TrainingType>(training.training_type);
   const [description, setDescription] = useState(training.description || '');
-  const [durationHours, setDurationHours] = useState(training.duration_hours?.toString() || '');
   const [plannedDate, setPlannedDate] = useState(training.planned_date ? format(training.planned_date, 'yyyy-MM-dd') : '');
-  const [location, setLocation] = useState(training.location || '');
-  const [maxParticipants, setMaxParticipants] = useState(training.max_participants?.toString() || '');
-  const [certificateRequired, setCertificateRequired] = useState(training.certificate_required);
-  const [validityMonths, setValidityMonths] = useState(training.validity_months?.toString() || '');
   const [status, setStatus] = useState<TrainingStatus>(training.status);
   const [prestataire, setPrestataire] = useState(training.prestataire || '');
   const [prestataireNote, setPrestataireNote] = useState(training.prestataire_note?.toString() || '');
@@ -1247,15 +1235,9 @@ const TrainingDetailsDialog = ({
   useEffect(() => {
     if (!isEditing) {
       setTitle(training.title);
-      setCategory(training.category);
       setTrainingType(training.training_type);
       setDescription(training.description || '');
-      setDurationHours(training.duration_hours?.toString() || '');
       setPlannedDate(training.planned_date ? format(training.planned_date, 'yyyy-MM-dd') : '');
-      setLocation(training.location || '');
-      setMaxParticipants(training.max_participants?.toString() || '');
-      setCertificateRequired(training.certificate_required);
-      setValidityMonths(training.validity_months?.toString() || '');
       setStatus(training.status);
       setPrestataire(training.prestataire || '');
       setPrestataireNote(training.prestataire_note?.toString() || '');
@@ -1266,15 +1248,15 @@ const TrainingDetailsDialog = ({
   const handleSave = () => {
     onUpdate(training.id, {
       title,
-      category,
+      category: training.category,
       training_type: trainingType,
       description: description || null,
-      duration_hours: durationHours ? parseFloat(durationHours) : null,
+      duration_hours: null,
       planned_date: plannedDate || null,
-      location: location || null,
-      max_participants: maxParticipants ? parseInt(maxParticipants) : null,
-      certificate_required: certificateRequired,
-      validity_months: validityMonths ? parseInt(validityMonths) : null,
+      location: null,
+      max_participants: null,
+      certificate_required: false,
+      validity_months: null,
       status,
       prestataire: prestataire || null,
       prestataire_note: prestataireNote ? parseFloat(prestataireNote) : null,
@@ -1283,32 +1265,12 @@ const TrainingDetailsDialog = ({
     setIsEditing(false);
   };
 
-  const stats = {
-    total: participants.length,
-    presents: participants.filter(p => p.registration_status === 'présent').length,
-    passed: participants.filter(p => p.passed).length,
-    certificates: participants.filter(p => p.certificate_number).length,
-  };
-
-  const getParticipantName = (participation: TrainingParticipation) => {
-    if (participation.participant_display_name) {
-      return participation.participant_display_name;
-    }
-    if (participation.participant_name) {
-      return participation.participant_name;
-    }
-    if (participation.participant_first_name && participation.participant_last_name) {
-      return `${participation.participant_first_name} ${participation.participant_last_name}`;
-    }
-    return 'Participant inconnu';
-  };
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
-            <span>Détails de la Formation</span>
+            <span>Détails de l&apos;évaluation</span>
             <div className="flex gap-2">
               {!isEditing ? (
                 <>
@@ -1344,52 +1306,15 @@ const TrainingDetailsDialog = ({
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Statistiques */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card className="border border-blue-200 bg-blue-50/60">
-              <CardContent className="p-4">
-                <p className="text-sm text-blue-700">Total participants</p>
-                <p className="text-2xl font-bold text-blue-700">{stats.total}</p>
-              </CardContent>
-            </Card>
-            <Card className="border border-green-200 bg-green-50/60">
-              <CardContent className="p-4">
-                <p className="text-sm text-green-700">Présents</p>
-                <p className="text-2xl font-bold text-green-700">{stats.presents}</p>
-              </CardContent>
-            </Card>
-            <Card className="border border-emerald-200 bg-emerald-50/60">
-              <CardContent className="p-4">
-                <p className="text-sm text-emerald-700">Réussis</p>
-                <p className="text-2xl font-bold text-emerald-700">{stats.passed}</p>
-              </CardContent>
-            </Card>
-            <Card className="border border-amber-200 bg-amber-50/60">
-              <CardContent className="p-4">
-                <p className="text-sm text-amber-700">Certificats</p>
-                <p className="text-2xl font-bold text-amber-700">{stats.certificates}</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Informations générales */}
           <div className="border-b pb-4">
-            <Label className="text-sm font-semibold text-gray-700 mb-3 block">Informations Générales</Label>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
+            <Label className="text-sm font-semibold text-gray-700 mb-3 block">Informations générales</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
                 <Label className="text-sm font-semibold text-gray-700">Titre</Label>
                 {isEditing ? (
                   <Input value={title} onChange={(e) => setTitle(e.target.value)} />
                 ) : (
                   <p className="font-medium">{training.title}</p>
-                )}
-              </div>
-              <div>
-                <Label className="text-sm font-semibold text-gray-700">Catégorie</Label>
-                {isEditing ? (
-                  <Input value={category} onChange={(e) => setCategory(e.target.value)} />
-                ) : (
-                  <p>{training.category}</p>
                 )}
               </div>
               <div>
@@ -1439,69 +1364,41 @@ const TrainingDetailsDialog = ({
                   <p>{training.prestataire || 'Non spécifié'}</p>
                 )}
               </div>
-              {prestataire && (
-                <>
-                  <div>
-                    <Label className="text-sm font-semibold text-gray-700">Note du prestataire (sur 10)</Label>
-                    {isEditing ? (
-                      <Input 
-                        type="number" 
-                        min="0" 
-                        max="10" 
-                        step="0.1" 
-                        value={prestataireNote} 
-                        onChange={(e) => setPrestataireNote(e.target.value)} 
-                        placeholder="Ex: 8.5" 
-                      />
-                    ) : (
-                      <p>{training.prestataire_note ? `${training.prestataire_note}/10` : 'Non noté'}</p>
-                    )}
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-sm font-semibold text-gray-700">Décision</Label>
-                    {isEditing ? (
-                      <Textarea 
-                        value={prestataireEvaluation} 
-                        onChange={(e) => setPrestataireEvaluation(e.target.value)} 
-                        rows={3} 
-                        placeholder="Commentaires sur la prestation..."
-                      />
-                    ) : (
-                      <p className="whitespace-pre-wrap">{training.prestataire_evaluation || '—'}</p>
-                    )}
-                  </div>
-                </>
-              )}
+              <div>
+                <Label className="text-sm font-semibold text-gray-700">Note (sur 10)</Label>
+                {isEditing ? (
+                  <Input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={prestataireNote}
+                    onChange={(e) => setPrestataireNote(e.target.value)}
+                    placeholder="Ex: 8.5"
+                  />
+                ) : (
+                  <p>{training.prestataire_note != null ? `${training.prestataire_note}/10` : '—'}</p>
+                )}
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-sm font-semibold text-gray-700">Décision</Label>
+                {isEditing ? (
+                  <Textarea
+                    value={prestataireEvaluation}
+                    onChange={(e) => setPrestataireEvaluation(e.target.value)}
+                    rows={3}
+                    placeholder="Ex: renouvellement, non-renouvellement…"
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap">{training.prestataire_evaluation || '—'}</p>
+                )}
+              </div>
               <div>
                 <Label className="text-sm font-semibold text-gray-700">Date planifiée</Label>
                 {isEditing ? (
                   <Input type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
                 ) : (
-                  <p>{training.planned_date ? format(training.planned_date, 'dd/MM/yyyy') : '-'}</p>
-                )}
-              </div>
-              <div>
-                <Label className="text-sm font-semibold text-gray-700">Durée (heures)</Label>
-                {isEditing ? (
-                  <Input type="number" step="0.5" value={durationHours} onChange={(e) => setDurationHours(e.target.value)} />
-                ) : (
-                  <p>{training.duration_hours || '-'}</p>
-                )}
-              </div>
-              <div>
-                <Label className="text-sm font-semibold text-gray-700">Lieu</Label>
-                {isEditing ? (
-                  <Input value={location} onChange={(e) => setLocation(e.target.value)} />
-                ) : (
-                  <p>{training.location || '-'}</p>
-                )}
-              </div>
-              <div>
-                <Label className="text-sm font-semibold text-gray-700">Participants max</Label>
-                {isEditing ? (
-                  <Input type="number" value={maxParticipants} onChange={(e) => setMaxParticipants(e.target.value)} />
-                ) : (
-                  <p>{training.max_participants || '-'}</p>
+                  <p>{training.planned_date ? format(training.planned_date, 'dd/MM/yyyy') : '—'}</p>
                 )}
               </div>
             </div>
@@ -1510,104 +1407,9 @@ const TrainingDetailsDialog = ({
               {isEditing ? (
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
               ) : (
-                <p className="text-gray-700 whitespace-pre-wrap">{training.description || 'Aucune description'}</p>
+                <p className="text-gray-700 whitespace-pre-wrap">{training.description || '—'}</p>
               )}
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-4">
-              <div className="flex items-center space-x-2 border rounded-lg p-3">
-                <Checkbox 
-                  id="certificateRequired" 
-                  checked={certificateRequired} 
-                  onCheckedChange={(checked) => setCertificateRequired(!!checked)}
-                  disabled={!isEditing}
-                />
-                <div>
-                  <Label htmlFor="certificateRequired">Certificat requis</Label>
-                  <p className="text-xs text-slate-500">Active le suivi des habilitations</p>
-                </div>
-              </div>
-              {certificateRequired && (
-                <div>
-                  <Label className="text-sm font-semibold text-gray-700">Validité (mois)</Label>
-                  {isEditing ? (
-                    <Input type="number" value={validityMonths} onChange={(e) => setValidityMonths(e.target.value)} placeholder="Ex: 12" />
-                  ) : (
-                    <p>{training.validity_months || '-'}</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Participants */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <Label className="text-sm font-semibold text-gray-700">Participants ({participants.length})</Label>
-            </div>
-            {participants.length > 0 ? (
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Participant</TableHead>
-                      <TableHead>Statut</TableHead>
-                      <TableHead>Date présence</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>Réussi</TableHead>
-                      <TableHead>Certificat</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {participants.map((participation) => (
-                      <TableRow key={participation.id}>
-                        <TableCell className="font-medium">
-                          {getParticipantName(participation)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {participation.registration_status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {participation.attendance_date ? format(participation.attendance_date, 'dd/MM/yyyy') : '-'}
-                        </TableCell>
-                        <TableCell>
-                          {participation.score !== null && participation.score !== undefined ? participation.score : '-'}
-                        </TableCell>
-                        <TableCell>
-                          {participation.passed ? (
-                            <Badge className="bg-green-100 text-green-700">Oui</Badge>
-                          ) : (
-                            <Badge variant="secondary">Non</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {participation.certificate_number ? (
-                            <div className="space-y-1">
-                              <p className="text-xs font-mono">{participation.certificate_number}</p>
-                              {participation.certificate_expiry_date && (
-                                <p className="text-xs text-gray-500">
-                                  Expire: {format(participation.certificate_expiry_date, 'dd/MM/yyyy')}
-                                </p>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <Card className="border border-dashed">
-                <CardContent className="p-8 text-center">
-                  <Icon name="UserPlus" className="mx-auto text-4xl text-gray-300 mb-2" />
-                  <p className="text-gray-500">Aucun participant enregistré</p>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
       </DialogContent>
