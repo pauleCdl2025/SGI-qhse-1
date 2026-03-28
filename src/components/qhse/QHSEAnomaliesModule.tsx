@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/Icon";
 import { User } from "@/types";
-import { useAnomalies, QHSEAnomaly } from "@/hooks/use-anomalies";
+import { useAnomalies } from "@/hooks/use-anomalies";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,7 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
   const { anomalies, createAnomaly, updateAnomaly, deleteAnomaly, fetchAnomalies } = useAnomalies();
   const [isAnomalyDialogOpen, setIsAnomalyDialogOpen] = useState(false);
   const [editingAnomalyId, setEditingAnomalyId] = useState<string | null>(null);
+  const [detailAnomalyId, setDetailAnomalyId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<"" | "faible" | "moyenne" | "haute" | "critique">("");
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
@@ -79,6 +80,15 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
       commentaire_verification: "",
     });
     setIsAnomalyDialogOpen(true);
+  };
+
+  const detailAnomaly = useMemo(
+    () => (detailAnomalyId ? anomalies.find(a => a.id === detailAnomalyId) ?? null : null),
+    [anomalies, detailAnomalyId]
+  );
+
+  const openDetailDialog = (id: string) => {
+    setDetailAnomalyId(id);
   };
 
   const openEditAnomalyDialog = (id: string) => {
@@ -623,7 +633,7 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
               <tbody>
                 {filteredAnomalies.length === 0 ? (
                   <tr>
-                    <td colSpan={20} className="px-3 py-4 text-center text-gray-500">
+                    <td colSpan={21} className="px-3 py-4 text-center text-gray-500">
                       Aucune anomalie ne correspond aux critères de recherche.
                     </td>
                   </tr>
@@ -673,6 +683,21 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
                       <td className="px-2 py-2 border border-gray-200">{anomaly.commentaire_verification || '-'}</td>
                       <td className="px-2 py-2 border border-gray-200">
                         <div className="flex items-center justify-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-7 w-7 border-slate-300 text-slate-700 hover:bg-slate-50"
+                                onClick={() => openDetailDialog(anomaly.id)}
+                                aria-label="Voir les détails"
+                              >
+                                <Icon name="Eye" className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Détails</TooltipContent>
+                          </Tooltip>
+
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
@@ -744,6 +769,155 @@ export const QHSEAnomaliesModule = ({ user }: QHSEAnomaliesModuleProps) => {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={detailAnomalyId !== null}
+        onOpenChange={open => {
+          if (!open) setDetailAnomalyId(null);
+        }}
+      >
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Icon name="Eye" className="text-cyan-600" />
+              Détails de l&apos;anomalie QHSE
+            </DialogTitle>
+            <DialogDescription>
+              Consultation en lecture seule. Utilisez « Modifier » pour changer les informations.
+            </DialogDescription>
+          </DialogHeader>
+          {detailAnomaly && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <Label className="text-muted-foreground">Date</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.date_anomalie || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Lieux</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.lieu || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Source</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.source || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Niveau de priorité</Label>
+                <div className="mt-1">
+                  <Badge
+                    className={
+                      detailAnomaly.niveau_priorite === "critique"
+                        ? "bg-red-500 text-white"
+                        : detailAnomaly.niveau_priorite === "haute"
+                        ? "bg-orange-500 text-white"
+                        : detailAnomaly.niveau_priorite === "moyenne"
+                        ? "bg-amber-400 text-white"
+                        : "bg-emerald-500 text-white"
+                    }
+                  >
+                    {detailAnomaly.niveau_priorite || "—"}
+                  </Badge>
+                </div>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Thématique</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.thematique || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Sous thématique</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.sous_thematique || "—"}</p>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground">Description de l&apos;anomalie</Label>
+                <p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2">
+                  {detailAnomaly.description || "—"}
+                </p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Responsable de l&apos;action</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.responsable_action || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Date limite de traitement</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.date_limite || "—"}</p>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground">Message de prise en compte</Label>
+                <p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2">
+                  {detailAnomaly.message_prise_en_compte || "—"}
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground">Actions à mettre en œuvre</Label>
+                <p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2">
+                  {detailAnomaly.actions_a_mettre_en_oeuvre || "—"}
+                </p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Devis à faire ?</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.devis_a_faire ? "Oui" : "Non"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Montant du devis</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">
+                  {detailAnomaly.montant_devis != null ? String(detailAnomaly.montant_devis) : "—"}
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground">Commentaires</Label>
+                <p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2">
+                  {detailAnomaly.commentaires || "—"}
+                </p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Impact sur le patient</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.impact_patient || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Impact sur le fonctionnement</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.impact_structure || "—"}</p>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground">État d&apos;avancement des actions</Label>
+                <p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2">
+                  {detailAnomaly.etat_avancement || "—"}
+                </p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Date de résolution effective</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.date_resolution || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Date de la vérification</Label>
+                <p className="mt-1 rounded-md border bg-muted/40 px-3 py-2">{detailAnomaly.date_verification || "—"}</p>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground">Commentaire de vérification</Label>
+                <p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2">
+                  {detailAnomaly.commentaire_verification || "—"}
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => setDetailAnomalyId(null)}>
+              Fermer
+            </Button>
+            {detailAnomaly && (
+              <Button
+                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600"
+                onClick={() => {
+                  const id = detailAnomaly.id;
+                  setDetailAnomalyId(null);
+                  openEditAnomalyDialog(id);
+                }}
+              >
+                <Icon name="Pencil" className="mr-2 h-4 w-4" />
+                Modifier
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isAnomalyDialogOpen} onOpenChange={setIsAnomalyDialogOpen}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">

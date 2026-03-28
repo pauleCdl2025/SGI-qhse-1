@@ -122,7 +122,26 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
 
   const handleCreateTraining = async (trainingData: any) => {
     try {
-      const { error } = await supabase.from('trainings').insert([trainingData]);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) throw new Error("Utilisateur non authentifié");
+
+      const newId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const { id: _ignoredId, ...rest } = trainingData ?? {};
+      const payload = {
+        ...rest,
+        id: newId,
+        created_by: user.id,
+      };
+
+      const { error } = await supabase.from('trainings').insert([payload]);
 
       if (error) {
         throw error;
@@ -137,7 +156,21 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
 
   const handleAddParticipation = async (data: any) => {
     try {
-      const { error } = await supabase.from('training_participations').insert([data]);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) throw new Error("Utilisateur non authentifié");
+
+      const payload = {
+        id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+        registered_by: user.id,
+        ...data,
+      };
+
+      const { error } = await supabase.from('training_participations').insert([payload]);
 
       if (error) {
         throw error;
@@ -153,7 +186,21 @@ export const TrainingsList = ({ users }: TrainingsListProps = {}) => {
 
   const handleAddCompetency = async (data: any) => {
     try {
-      const { error } = await supabase.from('competencies').insert([data]);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) throw new Error("Utilisateur non authentifié");
+
+      const payload = {
+        id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+        created_by: user.id,
+        ...data,
+      };
+
+      const { error } = await supabase.from('competencies').insert([payload]);
 
       if (error) {
         throw error;
@@ -744,15 +791,9 @@ const TrainingNeedsCard = ({ trainingNeeds }: { trainingNeeds: { type: string; l
 
 const TrainingForm = ({ onSubmit, onCancel, training }: { onSubmit: (data: any) => void; onCancel: () => void; training?: Training | null }) => {
   const [title, setTitle] = useState(training?.title || '');
-  const [category, setCategory] = useState(training?.category || '');
   const [trainingType, setTrainingType] = useState<TrainingType>(training?.training_type || 'interne');
   const [description, setDescription] = useState(training?.description || '');
-  const [durationHours, setDurationHours] = useState(training?.duration_hours?.toString() || '');
   const [plannedDate, setPlannedDate] = useState(training?.planned_date ? format(training.planned_date, 'yyyy-MM-dd') : '');
-  const [location, setLocation] = useState(training?.location || '');
-  const [maxParticipants, setMaxParticipants] = useState(training?.max_participants?.toString() || '');
-  const [certificateRequired, setCertificateRequired] = useState(training?.certificate_required || false);
-  const [validityMonths, setValidityMonths] = useState(training?.validity_months?.toString() || '');
   const [prestataire, setPrestataire] = useState(training?.prestataire || '');
   const [prestataireNote, setPrestataireNote] = useState(training?.prestataire_note?.toString() || '');
   const [prestataireEvaluation, setPrestataireEvaluation] = useState(training?.prestataire_evaluation || '');
@@ -765,16 +806,17 @@ const TrainingForm = ({ onSubmit, onCancel, training }: { onSubmit: (data: any) 
     }
     onSubmit({
       title,
-      category,
+      category: 'Évaluation prestataire',
       training_type: trainingType,
-      description,
-      duration_hours: durationHours ? parseFloat(durationHours) : null,
+      description: description || null,
+      duration_hours: null,
       planned_date: plannedDate || null,
-      location: location || null,
-      max_participants: maxParticipants ? parseInt(maxParticipants) : null,
-      certificate_required: certificateRequired,
-      validity_months: validityMonths ? parseInt(validityMonths) : null,
-      prestataire: prestataire,
+      location: null,
+      max_participants: null,
+      certificate_required: false,
+      validity_months: null,
+      status: 'planifiée',
+      prestataire,
       prestataire_note: prestataireNote ? parseFloat(prestataireNote) : null,
       prestataire_evaluation: prestataireEvaluation || null,
     });
@@ -786,22 +828,16 @@ const TrainingForm = ({ onSubmit, onCancel, training }: { onSubmit: (data: any) 
         <Label>Titre *</Label>
         <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Prestataire *</Label>
-          <Select value={prestataire || undefined} onValueChange={setPrestataire} required>
-            <SelectTrigger><SelectValue placeholder="Sélectionner un prestataire" /></SelectTrigger>
-            <SelectContent>
-              {PRESTATAIRES.map((p) => (
-                <SelectItem key={p} value={p}>{p}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Catégorie *</Label>
-          <Input value={category} onChange={(e) => setCategory(e.target.value)} required placeholder="Ex: Formation, Audit, etc." />
-        </div>
+      <div>
+        <Label>Prestataire *</Label>
+        <Select value={prestataire || undefined} onValueChange={setPrestataire} required>
+          <SelectTrigger><SelectValue placeholder="Sélectionner un prestataire" /></SelectTrigger>
+          <SelectContent>
+            {PRESTATAIRES.map((p) => (
+              <SelectItem key={p} value={p}>{p}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div>
         <Label>Type de prestation</Label>
@@ -818,79 +854,33 @@ const TrainingForm = ({ onSubmit, onCancel, training }: { onSubmit: (data: any) 
         <Label>Description</Label>
         <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Durée (heures)</Label>
-          <Input type="number" step="0.5" value={durationHours} onChange={(e) => setDurationHours(e.target.value)} />
-        </div>
-        <div>
-          <Label>Date planifiée</Label>
-          <Input type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
-        </div>
+      <div>
+        <Label>Date planifiée</Label>
+        <Input type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <Label>Lieu</Label>
-          <Input value={location} onChange={(e) => setLocation(e.target.value)} />
-        </div>
-        <div>
-          <Label>Participants max</Label>
-          <Input type="number" value={maxParticipants} onChange={(e) => setMaxParticipants(e.target.value)} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="flex items-center space-x-2 border rounded-lg p-3">
-          <Checkbox id="certificateRequired" checked={certificateRequired} onCheckedChange={(checked) => setCertificateRequired(!!checked)} />
-          <div>
-            <Label htmlFor="certificateRequired">Certificat requis</Label>
-            <p className="text-xs text-slate-500">Active le suivi des habilitations</p>
-          </div>
-        </div>
-        {certificateRequired && (
-          <div>
-            <Label>Validité (mois)</Label>
-            <Input type="number" value={validityMonths} onChange={(e) => setValidityMonths(e.target.value)} placeholder="Ex: 12" />
-          </div>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Prestataire</Label>
-          <Select value={prestataire} onValueChange={setPrestataire}>
-            <SelectTrigger><SelectValue placeholder="Sélectionner un prestataire" /></SelectTrigger>
-            <SelectContent>
-              {PRESTATAIRES.map((p) => (
-                <SelectItem key={p} value={p}>{p}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {prestataire && (
-          <div>
-            <Label>Note du prestataire (sur 10)</Label>
-            <Input 
-              type="number" 
-              min="0" 
-              max="10" 
-              step="0.1" 
-              value={prestataireNote} 
-              onChange={(e) => setPrestataireNote(e.target.value)} 
-              placeholder="Ex: 8.5" 
-            />
-          </div>
-        )}
-      </div>
-      {prestataire && (
-        <div>
-          <Label>Évaluation du prestataire</Label>
-          <Textarea 
-            value={prestataireEvaluation} 
-            onChange={(e) => setPrestataireEvaluation(e.target.value)} 
-            rows={3} 
-            placeholder="Commentaires sur la prestation..."
+          <Label>Note du prestataire (sur 10)</Label>
+          <Input
+            type="number"
+            min="0"
+            max="10"
+            step="0.1"
+            value={prestataireNote}
+            onChange={(e) => setPrestataireNote(e.target.value)}
+            placeholder="Ex: 8.5"
           />
         </div>
-      )}
+      </div>
+      <div>
+        <Label>Décision</Label>
+        <Textarea
+          value={prestataireEvaluation}
+          onChange={(e) => setPrestataireEvaluation(e.target.value)}
+          rows={3}
+          placeholder="Ex: renouvellement, non-renouvellement, mesures..."
+        />
+      </div>
       <div className="flex justify-end space-x-2">
         <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
         <Button type="submit" className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600">
@@ -1468,7 +1458,7 @@ const TrainingDetailsDialog = ({
                     )}
                   </div>
                   <div className="col-span-2">
-                    <Label className="text-sm font-semibold text-gray-700">Évaluation du prestataire</Label>
+                    <Label className="text-sm font-semibold text-gray-700">Décision</Label>
                     {isEditing ? (
                       <Textarea 
                         value={prestataireEvaluation} 
@@ -1477,7 +1467,7 @@ const TrainingDetailsDialog = ({
                         placeholder="Commentaires sur la prestation..."
                       />
                     ) : (
-                      <p className="whitespace-pre-wrap">{training.prestataire_evaluation || 'Aucune évaluation'}</p>
+                      <p className="whitespace-pre-wrap">{training.prestataire_evaluation || '—'}</p>
                     )}
                   </div>
                 </>
