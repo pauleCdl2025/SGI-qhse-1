@@ -1,5 +1,3 @@
-import { UserRole } from '@/types';
-
 export const allPermissions = [
   { id: 'portalSuperadmin', name: 'Portail Superadmin', icon: 'Home' },
   { id: 'portalAgentSecurite', name: 'Portail Agent Sécurité', icon: 'Home' },
@@ -53,11 +51,12 @@ export const allPermissions = [
   { id: 'networkEquipment', name: 'Matériel Réseau', icon: 'Server' },
   { id: 'networkSubscriptions', name: 'Abonnements Réseau', icon: 'CreditCard' },
   { id: 'qhseAnomalies', name: 'Anomalies QHSE', icon: 'AlertTriangle' },
+  { id: 'inventory', name: 'Inventaire', icon: 'PackageSearch' },
 ];
 
 const findPerms = (ids: string[]) => allPermissions.filter(p => ids.includes(p.id));
 
-export const roleConfig: Record<UserRole, { id: string; name: string; icon: string; }[]> = {
+ export const roleConfig: Record<string, { id: string; name: string; icon: string; }[]> = {
   superadmin: [
     { id: 'portalSuperadmin', name: 'Mon Portail', icon: 'Home' },
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
@@ -65,7 +64,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   ],
   superviseur_qhse: [
     { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'qhseAudits', 'qhseWorks', 'qhseTrainings', 'qhseWaste', 'qhseSterilizationRegister', 'qhseRisks', 'qhseReports', 'dailyRoundsView', 'qhseAES', 'tableauSuiviAES', 'cameraAccessRequestsTraceability', 'qhseAnomalies'])
+    ...findPerms(['dashboardQHSE', 'qhseTickets', 'planningTasks', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'kpiDashboard', 'personalInfo', 'inventory', 'qhseAudits', 'qhseWorks', 'qhseTrainings', 'qhseWaste', 'qhseSterilizationRegister', 'qhseRisks', 'qhseReports', 'dailyRoundsView', 'qhseAES', 'tableauSuiviAES', 'cameraAccessRequestsTraceability', 'qhseAnomalies'])
   ],
   // Assistante QHSE : son portail, signalement d'incidents, gestion tickets, formations et consultation des rondes
   assistante_qhse: [
@@ -91,7 +90,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   ],
   biomedical: [
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-    ...findPerms(['biomedical', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
+    ...findPerms(['biomedical', 'inventory', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
   ],
   dop: [
     ...findPerms(['personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
@@ -114,7 +113,7 @@ export const roleConfig: Record<UserRole, { id: string; name: string; icon: stri
   // Rôle administrateur réseau
   administrateur_reseau: [
     { id: 'portalAdministrateurReseau', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['networkEquipment', 'networkSubscriptions', 'dailyRoundsReseau', 'myTasks', 'planningTasks', 'qhseTickets', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['networkEquipment', 'networkSubscriptions', 'inventory', 'dailyRoundsReseau', 'myTasks', 'planningTasks', 'qhseTickets', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
 };
 

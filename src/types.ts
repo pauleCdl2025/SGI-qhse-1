@@ -9,6 +9,7 @@ export type UserRole =
   | 'superviseur_agent_securite'
   | 'superviseur_agent_entretien'
   | 'superviseur_technicien'
+  | 'administrateur_reseau'
   | 'medecin'
   | 'biomedical'
   | 'dop'

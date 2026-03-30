@@ -49,6 +49,7 @@ import { AESList } from '@/components/qhse/AESList';
 import { TableauSuiviAES } from '@/components/qhse/TableauSuiviAES';
 import { DailyRoundsList, DailyRoundsView } from '@/components/rounds';
 import { NetworkEquipmentList, NetworkSubscriptionsList } from '@/components/network';
+import { InventoryList } from '@/components/inventory/InventoryList';
 import { 
   filterIncidentsByRole, 
   filterVisitorsByRole, 
@@ -320,7 +321,7 @@ const BiomedicalDashboard = ({ biomedicalEquipment, addBiomedicalEquipment, upda
 const DashboardPage = (props: DashboardPageProps) => {
   const { user, username, onLogout, notifications, markNotificationsAsRead, markNotificationAsRead, deleteAllNotifications, onUpdatePassword } = props;
   
-  const userTabs = roleConfig[user.role] || (user.role === 'administrateur_reseau' ? roleConfig['administrateur_reseau'] : undefined);
+  const userTabs = roleConfig[user.role] || [];
   const { requests: cameraAccessRequests, isLoading: isLoadingCameraRequests, refreshRequests: refreshCameraRequests } = useCameraAccessRequests();
   
   // Debug: vérifier les tabs
@@ -357,7 +358,7 @@ const DashboardPage = (props: DashboardPageProps) => {
       return 'portalBiomedical'; // Fallback par défaut
     }
     
-    switch (user.role) {
+    switch (user.role as string) {
       case 'superadmin':
         return 'portalSuperadmin';
       case 'agent_securite':
@@ -392,9 +393,7 @@ const DashboardPage = (props: DashboardPageProps) => {
       case 'administrateur_reseau':
         return 'portalAdministrateurReseau';
       default:
-        if (userTabs && userTabs.length > 0) {
-          return userTabs[0].id;
-        }
+        if (userTabs.length > 0) return userTabs[0].id;
         // Si le rôle n'est pas reconnu, essayer de trouver le portail dans les tabs
         console.warn(`Rôle non reconnu: ${user.role}, userTabs:`, userTabs, 'fallback vers portalBiomedical');
         return 'portalBiomedical';
@@ -402,9 +401,7 @@ const DashboardPage = (props: DashboardPageProps) => {
   };
 
   const homeTabId = useMemo(() => {
-    if (userTabs && userTabs.length > 0) {
-      return userTabs[0].id;
-    }
+    if (userTabs.length > 0) return userTabs[0].id;
     return getDefaultPortal();
   }, [userTabs, user.role]);
   
@@ -910,6 +907,8 @@ const DashboardPage = (props: DashboardPageProps) => {
         return <NetworkEquipmentList user={user} />;
       case 'networkSubscriptions':
         return <NetworkSubscriptionsList user={user} />;
+      case 'inventory':
+        return <InventoryList />;
       default:
         return <SuperadminDashboard 
           incidents={props.incidents} 
