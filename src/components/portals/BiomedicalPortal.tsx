@@ -428,6 +428,13 @@ export const BiomedicalPortal = ({ user, biomedicalEquipment, maintenanceTasks, 
             <p className="text-sm text-gray-600">Suivre et mettre à jour vos équipements</p>
           </CardContent>
         </Card>
+        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('inventory')}>
+          <CardContent className="p-6">
+            <Icon name="PackageSearch" className="text-teal-600 mb-3 text-3xl" />
+            <h3 className="font-semibold mb-2">Inventaire</h3>
+            <p className="text-sm text-gray-600">Localiser les appareils et tracer les déplacements</p>
+          </CardContent>
+        </Card>
         <Card className="card-hover cursor-pointer" onClick={() => onNavigate('reportBiomedicalIncident')}>
           <CardContent className="p-6">
             <Icon name="AlertCircle" className="text-red-600 mb-3 text-3xl" />
