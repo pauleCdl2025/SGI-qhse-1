@@ -113,7 +113,7 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
       return uploadedUrls;
     } catch (error: any) {
       console.error("Error uploading images:", error.message || error);
-      showError(`Erreur lors du téléchargement des images: ${error.message || error}`);
+      showError(`Erreur lors de l'envoi des photos: ${error.message || error}`);
       return [];
     }
   };
