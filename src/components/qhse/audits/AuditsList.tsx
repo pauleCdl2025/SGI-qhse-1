@@ -134,8 +134,15 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
 
   const handleCreateAudit = async (auditData: any) => {
     try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) throw new Error("Utilisateur non authentifié");
+
       const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const { error } = await supabase.from('audits').insert([{ ...auditData, id }]);
+      const { error } = await supabase.from('audits').insert([{ ...auditData, id, created_by: user.id }]);
       if (error) throw error;
       showSuccess("Audit créé avec succès");
       setIsDialogOpen(false);
@@ -184,6 +191,13 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
           </Button>
           <ExcelImportButton
             onImport={async (data: any[]) => {
+              const {
+                data: { user },
+                error: authError,
+              } = await supabase.auth.getUser();
+              if (authError) throw authError;
+              if (!user) throw new Error("Utilisateur non authentifié");
+
               for (const item of data) {
                 const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
                 await supabase.from('audits').insert([{
@@ -194,6 +208,7 @@ export const AuditsList = ({ users }: AuditsListProps = {}) => {
                   planned_date: item.planned_date || item['Date Planifiée'],
                   auditor_id: item.auditor_id || null,
                   audited_department: item.audited_department || item.Département || null,
+                  created_by: user.id,
                 }]);
               }
               await fetchAudits();
