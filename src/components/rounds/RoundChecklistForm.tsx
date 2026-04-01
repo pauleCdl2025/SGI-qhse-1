@@ -88,7 +88,11 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
       // (e.g. unique constraint on round_id + template_id).
       const payload: any = {
         ...responseData,
-        ...(existingResponse?.id ? { id: existingResponse.id } : {}),
+        id:
+          existingResponse?.id ||
+          (typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`),
       };
 
       const { data: saved, error } = await supabase
@@ -140,7 +144,11 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     try {
       const payload: any = {
         ...responseData,
-        ...(existingResponse?.id ? { id: existingResponse.id } : {}),
+        id:
+          existingResponse?.id ||
+          (typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`),
         // Ensure checkbox is marked when setting equipment status
         is_checked: true,
       };
