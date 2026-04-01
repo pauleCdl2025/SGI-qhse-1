@@ -98,14 +98,14 @@ USING (
   EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id::text = auth.uid()::text
-      AND role IN ('superadmin', 'superviseur_qhse', 'biomedical', 'administrateur_reseau')
+      AND role IN ('superadmin', 'superviseur_qhse', 'superviseur_technicien', 'technicien', 'biomedical', 'administrateur_reseau')
   )
 )
 WITH CHECK (
   EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id::text = auth.uid()::text
-      AND role IN ('superadmin', 'superviseur_qhse', 'biomedical', 'administrateur_reseau')
+      AND role IN ('superadmin', 'superviseur_qhse', 'superviseur_technicien', 'technicien', 'biomedical', 'administrateur_reseau')
   )
 );
 
@@ -117,7 +117,7 @@ WITH CHECK (
   EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id::text = auth.uid()::text
-      AND role IN ('superadmin', 'superviseur_qhse', 'biomedical', 'administrateur_reseau')
+      AND role IN ('superadmin', 'superviseur_qhse', 'superviseur_technicien', 'technicien', 'biomedical', 'administrateur_reseau')
   )
 );
 

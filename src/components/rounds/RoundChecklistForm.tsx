@@ -84,26 +84,21 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     }
 
     try {
-      let response: RoundChecklistResponse;
-      if (existingResponse) {
-        const { data: updated, error } = await supabase
-          .from('round_checklist_responses')
-          .update(responseData)
-          .eq('id', existingResponse.id)
-          .select()
-          .single();
-        if (error) throw error;
-        response = updated;
-      } else {
-        const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const { data: inserted, error } = await supabase
-          .from('round_checklist_responses')
-          .insert([{ ...responseData, id }])
-          .select()
-          .single();
-        if (error) throw error;
-        response = inserted;
-      }
+      // Use UPSERT to avoid 409 conflicts when a response already exists
+      // (e.g. unique constraint on round_id + template_id).
+      const payload: any = {
+        ...responseData,
+        ...(existingResponse?.id ? { id: existingResponse.id } : {}),
+      };
+
+      const { data: saved, error } = await supabase
+        .from('round_checklist_responses')
+        .upsert([payload], { onConflict: 'round_id,template_id' })
+        .select()
+        .single();
+
+      if (error) throw error;
+      const response: RoundChecklistResponse = saved as any;
       setResponses(prev => ({
         ...prev,
         [templateId]: response,
@@ -143,27 +138,21 @@ export const RoundChecklistForm = ({ round, user, onComplete }: RoundChecklistFo
     };
 
     try {
-      let response: RoundChecklistResponse;
-      if (existingResponse) {
-        const { data: updated, error } = await supabase
-          .from('round_checklist_responses')
-          .update({ equipment_status: status })
-          .eq('id', existingResponse.id)
-          .select()
-          .single();
-        if (error) throw error;
-        response = updated;
-      } else {
-        const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const payload = { ...responseData, id, is_checked: true };
-        const { data: inserted, error } = await supabase
-          .from('round_checklist_responses')
-          .insert([payload])
-          .select()
-          .single();
-        if (error) throw error;
-        response = inserted;
-      }
+      const payload: any = {
+        ...responseData,
+        ...(existingResponse?.id ? { id: existingResponse.id } : {}),
+        // Ensure checkbox is marked when setting equipment status
+        is_checked: true,
+      };
+
+      const { data: saved, error } = await supabase
+        .from('round_checklist_responses')
+        .upsert([payload], { onConflict: 'round_id,template_id' })
+        .select()
+        .single();
+
+      if (error) throw error;
+      const response: RoundChecklistResponse = saved as any;
       setResponses(prev => ({
         ...prev,
         [templateId]: response,
