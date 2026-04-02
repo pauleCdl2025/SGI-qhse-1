@@ -142,7 +142,45 @@ export const WorksList = ({ users }: WorksListProps = {}) => {
 
   const handleCreateWork = async (workData: any) => {
     try {
-      const { error } = await supabase.from('works').insert([workData]);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) throw new Error("Utilisateur non authentifié");
+
+      const newId =
+        typeof globalThis.crypto !== "undefined" &&
+        "randomUUID" in globalThis.crypto
+          ? globalThis.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      const { id: _ignoredId, created_by: _ignoredCreatedBy, ...rest } =
+        workData ?? {};
+
+      // Optionnel: renseigner assigned_to_name si on peut résoudre l'utilisateur sélectionné
+      let assigned_to_name: string | null = null;
+      if (rest?.assigned_to && users) {
+        const assignedUser = Object.values(users).find((u: any) => u.id === rest.assigned_to);
+        if (assignedUser) {
+          assigned_to_name =
+            `${assignedUser.civility || ""} ${assignedUser.first_name || ""} ${assignedUser.last_name || ""}`
+              .trim() ||
+            assignedUser.name ||
+            assignedUser.username ||
+            null;
+        }
+      }
+
+      const payload = {
+        ...rest,
+        id: newId,
+        created_by: user.id,
+        assigned_to_name,
+      };
+
+      const { error } = await supabase.from('works').insert([payload]);
 
       if (error) {
         throw error;
