@@ -177,41 +177,52 @@ export const QHSEReportsModule = () => {
       const filtered = getFilteredData();
       const stats = getStats();
       
-      // Récupérer les informations de l'utilisateur actuel
-      const token = localStorage.getItem('auth_token');
-      const userId = localStorage.getItem('currentUserId');
-      
-      if (token && userId) {
-        const { data: profile, error: profileError } = await supabase
+      // Récupérer les informations de l'utilisateur avec fallback
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+      const userId = authUser?.id || localStorage.getItem('currentUserId');
+
+      let user = {
+        id: userId || 'unknown',
+        username: 'utilisateur',
+        first_name: '',
+        last_name: '',
+        civility: '',
+        email: '',
+        role: 'inconnu',
+        position: '',
+      };
+
+      if (userId) {
+        const { data: profile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', userId)
           .maybeSingle();
-        if (profileError) throw new Error(profileError.message || 'Erreur lors de la récupération du profil');
-        if (!profile) throw new Error('Profil non trouvé');
 
-        const user = {
-          id: profile.id,
-          username: profile.username,
-          first_name: profile.first_name,
-          last_name: profile.last_name,
-          civility: profile.civility,
-          email: profile.email,
-          role: profile.role,
-          position: profile.service,
-        };
-
-        await generateQHSEReportPDF(reportType, {
-          user,
-          data: filtered,
-          stats,
-          dateRange: { start: startDate, end: endDate },
-        });
-        
-        showSuccess('Rapport PDF généré avec succès !');
-      } else {
-        throw new Error('Non authentifié');
+        if (profile) {
+          user = {
+            id: profile.id,
+            username: profile.username || 'utilisateur',
+            first_name: profile.first_name || '',
+            last_name: profile.last_name || '',
+            civility: profile.civility || '',
+            email: profile.email || '',
+            role: profile.role || 'inconnu',
+            position: profile.service || '',
+          };
+        }
       }
+
+      await generateQHSEReportPDF(reportType, {
+        user,
+        data: filtered,
+        stats,
+        dateRange: { start: startDate, end: endDate },
+      });
+      
+      showSuccess('Rapport PDF généré avec succès !');
     } catch (error: any) {
       console.error('Erreur lors de la génération du rapport:', error);
       showError('Erreur lors de la génération du rapport PDF: ' + (error.message || 'Erreur inconnue'));
