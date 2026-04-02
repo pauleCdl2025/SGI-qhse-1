@@ -95,7 +95,12 @@ export const NetworkEquipmentList = ({ user }: NetworkEquipmentListProps) => {
   const handleCreateEquipment = async (data: any) => {
     try {
       const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const { error } = await supabase.from('network_equipment').insert([{ ...data, id }]);
+      const createdBy = user?.id || null;
+      if (!createdBy) {
+        throw new Error("Utilisateur non authentifié");
+      }
+
+      const { error } = await supabase.from('network_equipment').insert([{ ...data, id, created_by: createdBy }]);
       if (error) throw error;
       showSuccess("Équipement créé avec succès");
       setIsDialogOpen(false);
