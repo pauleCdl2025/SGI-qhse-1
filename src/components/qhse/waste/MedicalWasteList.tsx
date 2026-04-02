@@ -108,6 +108,14 @@ export const MedicalWasteList = () => {
 
   const handleCreateWaste = async (wasteData: any, photoFiles: File[] = []) => {
     try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) throw new Error("Utilisateur non authentifié");
+
       let photoUrls: string[] = [];
       
       // Upload des photos si elles existent
@@ -136,9 +144,20 @@ export const MedicalWasteList = () => {
       }
       
       // Créer le déchet avec les URLs des photos
+      const newId =
+        typeof globalThis.crypto !== "undefined" &&
+        "randomUUID" in globalThis.crypto
+          ? globalThis.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      const { id: _ignoredId, registered_by: _ignoredRegisteredBy, ...rest } =
+        wasteData ?? {};
+
       const { error } = await supabase.from('medical_waste').insert([
         {
-          ...wasteData,
+          ...rest,
+          id: newId,
+          registered_by: user.id,
           photo_urls: photoUrls,
         },
       ]);
