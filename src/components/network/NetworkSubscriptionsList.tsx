@@ -96,7 +96,12 @@ export const NetworkSubscriptionsList = ({ user }: NetworkSubscriptionsListProps
   const handleCreateSubscription = async (data: any) => {
     try {
       const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const { error } = await supabase.from('network_subscriptions').insert([{ ...data, id }]);
+      const createdBy = user?.id || null;
+      if (!createdBy) {
+        throw new Error("Utilisateur non authentifié");
+      }
+
+      const { error } = await supabase.from('network_subscriptions').insert([{ ...data, id, created_by: createdBy }]);
       if (error) throw error;
       showSuccess("Abonnement créé avec succès");
       setIsDialogOpen(false);
