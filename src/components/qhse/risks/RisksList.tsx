@@ -128,7 +128,30 @@ export const RisksList = ({ currentUser }: RisksListProps = {}) => {
 
   const handleCreateRisk = async (riskData: any) => {
     try {
-      const { error } = await supabase.from('risks').insert([riskData]);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) throw new Error("Utilisateur non authentifié");
+
+      const newId =
+        typeof globalThis.crypto !== "undefined" &&
+        "randomUUID" in globalThis.crypto
+          ? globalThis.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      const { id: _ignoredId, created_by: _ignoredCreatedBy, ...rest } =
+        riskData ?? {};
+
+      const payload = {
+        ...rest,
+        id: newId,
+        created_by: user.id,
+      };
+
+      const { error } = await supabase.from('risks').insert([payload]);
 
       if (error) {
         throw error;
