@@ -34,6 +34,23 @@ const roundTypeLabels: Record<RoundType, string> = {
   reseau: "Réseau",
 };
 
+const normalizeRoundType = (value: string): RoundType => {
+  const normalized = (value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (normalized === "biomedical") return "biomedical";
+  if (normalized === "technicien_polyvalent" || normalized === "technicien-polyvalent") {
+    return "technicien_polyvalent";
+  }
+  if (normalized === "reseau" || normalized === "network") return "reseau";
+
+  // Valeur de repli sûre
+  return "biomedical";
+};
+
 interface DailyRoundsListProps {
   user: User;
   roundType: RoundType;
@@ -53,11 +70,12 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
   const fetchRounds = async () => {
     try {
       setLoading(true);
+      const safeRoundType = normalizeRoundType(roundType);
       const { data, error } = await supabase
         .from('daily_rounds')
         .select('*')
         .eq('technician_id', user.id)
-        .eq('round_type', roundType)
+        .eq('round_type', safeRoundType)
         .order('round_date', { ascending: false });
 
       if (error) {
@@ -107,6 +125,7 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
       const startTime = format(now, "yyyy-MM-dd HH:mm:ss");
       
       const technicianName = user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : '';
+      const safeRoundType = normalizeRoundType(roundType);
       const id =
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
@@ -118,7 +137,7 @@ export const DailyRoundsList = ({ user, roundType }: DailyRoundsListProps) => {
             id,
             technician_id: user.id,
             technician_name: technicianName,
-            round_type: roundType,
+            round_type: safeRoundType,
             round_date: roundDate,
             status: 'en_cours',
             start_time: startTime,
