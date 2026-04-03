@@ -25,12 +25,40 @@ export const CreateTaskDialog = ({ users, onAddTask }: CreateTaskDialogProps) =>
   const [description, setDescription] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [dueDate, setDueDate] = useState<Date | undefined>();
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [assigneeName, setAssigneeName] = useState('');
 
-  const agentRoles: UserRole[] = ['agent_securite', 'agent_entretien', 'technicien', 'technicien_polyvalent'];
-  const availableAgents = Object.entries(users).filter(([, user]) => agentRoles.includes(user.role));
-  const maintenanceAgentNames = ['Stone', 'Paul', 'Edouard', 'Marina', 'Anne', 'Prisca', 'Jacque', 'Dorel', 'Christelle'];
+  const preferredPrestataires = [
+    {
+      key: 'teddy',
+      displayName: 'Teddy',
+      displayRole: 'Technicien Biomédical',
+      matchRoles: ['technicien', 'biomedical'] as UserRole[],
+    },
+    {
+      key: 'ben',
+      displayName: 'Ben',
+      displayRole: 'Admin Réseau',
+      matchRoles: ['administrateur_reseau'] as UserRole[],
+    },
+    {
+      key: 'joachim',
+      displayName: 'Joachim',
+      displayRole: 'Technicien Polyvalent',
+      matchRoles: ['technicien_polyvalent'] as UserRole[],
+    },
+  ];
+
+  const prestataireOptions = preferredPrestataires
+    .map((preset) => {
+      const entry = Object.values(users).find((u) => preset.matchRoles.includes(u.role));
+      if (!entry) return null;
+      return {
+        id: entry.id,
+        name: preset.displayName,
+        roleLabel: preset.displayRole,
+      };
+    })
+    .filter((v): v is { id: string; name: string; roleLabel: string } => Boolean(v));
 
   const formatUserName = (user: Users[string]) => {
     const parts = [user.first_name, user.last_name].filter(Boolean);
@@ -43,39 +71,10 @@ export const CreateTaskDialog = ({ users, onAddTask }: CreateTaskDialogProps) =>
     return user.username;
   };
 
-  const getRoleLabel = (role: UserRole): string => {
-    const roleLabels: Record<UserRole, string> = {
-      agent_securite: 'Agent Sécurité',
-      agent_entretien: 'Agent Entretien',
-      technicien: 'Technicien Biomédical',
-      technicien_polyvalent: 'Technicien Polyvalent',
-      superviseur_qhse: 'Superviseur QHSE',
-      superadmin: 'Super Admin',
-      secretaire: 'Secrétaire',
-      superviseur_agent_securite: 'Superviseur Sécurité',
-      superviseur_agent_entretien: 'Superviseur Entretien',
-      superviseur_technicien: 'Superviseur Technique',
-      medecin: 'Médecin',
-      biomedical: 'Biomédical',
-      dop: 'DOP',
-      employe: 'Employé',
-      buandiere: 'Buandière',
-    };
-    return roleLabels[role] || role;
-  };
-
   const handleAssignedChange = (value: string) => {
     setAssignedTo(value);
-    const entry = Object.values(users).find(user => user.id === value);
-    if (entry) {
-      setSelectedRole(entry.role);
-      if (entry.role !== 'agent_entretien') {
-        setAssigneeName('');
-      }
-    } else {
-      setSelectedRole(null);
-      setAssigneeName('');
-    }
+    const selectedPrestataire = prestataireOptions.find((p) => p.id === value);
+    setAssigneeName(selectedPrestataire?.name || '');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -85,8 +84,8 @@ export const CreateTaskDialog = ({ users, onAddTask }: CreateTaskDialogProps) =>
       return;
     }
 
-    if (selectedRole === 'agent_entretien' && !assigneeName) {
-      showError("Veuillez sélectionner le nom de l'agent d'entretien.");
+    if (!assigneeName) {
+      showError("Veuillez sélectionner un prestataire.");
       return;
     }
 
@@ -103,7 +102,6 @@ export const CreateTaskDialog = ({ users, onAddTask }: CreateTaskDialogProps) =>
     setDescription('');
     setAssignedTo('');
     setAssigneeName('');
-    setSelectedRole(null);
     setDueDate(undefined);
   };
 
@@ -131,29 +129,16 @@ export const CreateTaskDialog = ({ users, onAddTask }: CreateTaskDialogProps) =>
           <div>
             <Label>Assigner à</Label>
             <Select onValueChange={handleAssignedChange} value={assignedTo} required>
-              <SelectTrigger><SelectValue placeholder="Sélectionner un agent" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Sélectionner un prestataire" /></SelectTrigger>
               <SelectContent>
-                {availableAgents.map(([username, user]) => (
-                  <SelectItem key={username} value={user.id}>
-                    {formatUserName(user)} - {getRoleLabel(user.role)} {user.position ? `(${user.position})` : ''}
+                {prestataireOptions.map((prestataire) => (
+                  <SelectItem key={prestataire.id} value={prestataire.id}>
+                    {prestataire.name} - {prestataire.roleLabel}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          {selectedRole === 'agent_entretien' && (
-            <div>
-              <Label>Nom de l'agent d'entretien</Label>
-              <Select onValueChange={setAssigneeName} value={assigneeName} required>
-                <SelectTrigger><SelectValue placeholder="Sélectionner le nom de l'agent" /></SelectTrigger>
-                <SelectContent>
-                  {maintenanceAgentNames.map(name => (
-                    <SelectItem key={name} value={name}>{name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
           <div>
             <Label>Date d'échéance</Label>
             <Popover>
