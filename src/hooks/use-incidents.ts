@@ -215,7 +215,15 @@ export const useIncidents = ({ currentUser, users, addNotification: _addNotifica
       showSuccess(`Le statut du ticket a été mis à jour.`);
     } catch (error: any) {
       console.error("Error updating incident status:", error.message || error);
-      showError("Erreur lors de la mise à jour du statut de l'incident.");
+      const details =
+        error?.message ||
+        error?.details ||
+        error?.hint ||
+        (typeof error === 'string' ? error : null);
+      showError(
+        "Erreur lors de la mise à jour du statut de l'incident." +
+          (details ? ` (${details})` : "")
+      );
       setIncidents(previousIncidents);
     }
   };
