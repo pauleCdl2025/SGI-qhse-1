@@ -58,6 +58,31 @@ export const filterIncidentsByRole = (
     // L'admin voit tous les incidents
     return incidents;
   }
+
+  // Pour les KPIs, on privilégie une vue "par service" (métier) afin que le dashboard
+  // ne soit pas vide pour les rôles opérationnels qui ne créent/assignent pas eux-mêmes
+  // tous les incidents.
+  const roleServiceScope: Partial<Record<UserRole, Incident['service'][]>> = {
+    agent_securite: ['securite'],
+    superviseur_agent_securite: ['securite'],
+    agent_entretien: ['entretien'],
+    superviseur_agent_entretien: ['entretien'],
+    technicien: ['technique', 'biomedical'],
+    superviseur_technicien: ['technique', 'biomedical'],
+    biomedical: ['biomedical'],
+    technicien_polyvalent: ['technique', 'biomedical', 'entretien'],
+    administrateur_reseau: ['technique'],
+    secretaire: ['securite', 'technique', 'entretien', 'biomedical'],
+    medecin: ['securite', 'technique', 'entretien', 'biomedical'],
+    employe: ['securite', 'technique', 'entretien', 'biomedical'],
+    dop: ['securite', 'technique', 'entretien', 'biomedical'],
+    buandiere: ['securite', 'technique', 'entretien', 'biomedical'],
+  };
+
+  const scopedServices = roleServiceScope[currentUser.role];
+  if (scopedServices && scopedServices.length > 0) {
+    return incidents.filter(i => scopedServices.includes(i.service));
+  }
   
   if (['superviseur_agent_securite', 'superviseur_agent_entretien', 'superviseur_technicien', 'superviseur_qhse'].includes(currentUser.role)) {
     // Les superviseurs voient les incidents de leurs agents + les leurs

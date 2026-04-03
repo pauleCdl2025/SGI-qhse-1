@@ -171,16 +171,6 @@ export const AgentSecuritePortal = ({ user, incidents, visitors, plannedTasks, n
                 </div>
               </button>
               <button
-                onClick={() => onNavigate('reportMaintenanceIncident')}
-                className="w-full p-4 bg-green-50 border-2 border-green-200 rounded-lg hover:bg-green-100 transition-all text-left flex items-center"
-              >
-                <Icon name="SprayCan" className="text-green-600 mr-3" />
-                <div>
-                  <div className="font-semibold text-gray-900">Incident d'Entretien</div>
-                  <div className="text-sm text-gray-600">Signaler un problème d'entretien</div>
-                </div>
-              </button>
-              <button
                 onClick={() => onNavigate('visitorLog')}
                 className="w-full p-4 bg-blue-50 border-2 border-blue-200 rounded-lg hover:bg-blue-100 transition-all text-left flex items-center"
               >

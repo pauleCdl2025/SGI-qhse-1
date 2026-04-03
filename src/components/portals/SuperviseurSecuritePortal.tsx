@@ -160,13 +160,6 @@ export const SuperviseurSecuritePortal = ({ user, incidents, visitors, plannedTa
             <p className="text-sm text-gray-600">Signaler un incident</p>
           </CardContent>
         </Card>
-        <Card className="card-hover cursor-pointer" onClick={() => onNavigate('reportMaintenanceIncident')}>
-          <CardContent className="p-6">
-            <Icon name="SprayCan" className="text-green-600 mb-3 text-3xl" />
-            <h3 className="font-semibold mb-2">Incident d'Entretien</h3>
-            <p className="text-sm text-gray-600">Signaler un problème d'entretien</p>
-          </CardContent>
-        </Card>
         <Card className="card-hover opacity-75">
           <CardContent className="p-6">
             <Icon name="Settings" className="text-gray-600 mb-3 text-3xl" />
