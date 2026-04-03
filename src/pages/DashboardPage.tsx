@@ -732,7 +732,13 @@ const DashboardPage = (props: DashboardPageProps) => {
           : props.incidents.filter(i => i.service === serviceFilter);
         return <QhseTicketsTable incidents={filteredIncidents} onUpdateStatus={props.updateIncidentStatus} onAssignTicket={props.assignTicket} onUnassignTicket={props.unassignTicket} onCreateAndAssignTicket={createAndAssignTicket} users={props.users} currentUserRole={user.role} currentUserId={user.id} currentUser={user} />;
       case 'reportIncident':
-        return user.role === 'agent_securite' || user.role === 'superviseur_agent_securite' ? <ReportSecurityIncidentForm onAddIncident={props.addIncident} /> : <ReportProblemForm onAddIncident={props.addIncident} />;
+        if (user.role === 'agent_securite' || user.role === 'superviseur_agent_securite') {
+          return <ReportSecurityIncidentForm onAddIncident={props.addIncident} />;
+        }
+        if (['biomedical', 'technicien', 'superviseur_technicien', 'technicien_polyvalent', 'administrateur_reseau'].includes(user.role)) {
+          return <ReportBiomedicalIncidentForm onAddIncident={props.addIncident} />;
+        }
+        return <ReportProblemForm onAddIncident={props.addIncident} />;
       case 'reportSecurityIncident':
         return <ReportSecurityIncidentForm onAddIncident={props.addIncident} />;
       case 'reportMaintenanceIncident':

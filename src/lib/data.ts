@@ -81,16 +81,16 @@ const findPerms = (ids: string[]) => allPermissions.filter(p => ids.includes(p.i
   // Superviseur technicien utilise également le portail superviseur QHSE
   superviseur_technicien: [
     { id: 'portalSuperviseurQHSE', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['dashboardTechnicien', 'qhseTickets', 'biomedical', 'planningTasks', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['dashboardTechnicien', 'qhseTickets', 'biomedical', 'planningTasks', 'personalInfo', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
   technicien: [
     // Le portail Technicien dédié n'existe plus, le technicien utilise le portail Biomédical
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-    ...findPerms(['dashboardTechnicien', 'qhseTickets', 'biomedical', 'myTasks', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['dashboardTechnicien', 'qhseTickets', 'biomedical', 'myTasks', 'personalInfo', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
   biomedical: [
     { id: 'portalBiomedical', name: 'Portail Biomédical', icon: 'HeartPulse' },
-    ...findPerms(['biomedical', 'inventory', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
+    ...findPerms(['biomedical', 'inventory', 'planningTasks', 'kpiDashboard', 'personalInfo', 'reportSecurityIncident', 'reportBiomedicalIncident', 'dailyRoundsBiomedical'])
   ],
   dop: [
     ...findPerms(['personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
@@ -113,7 +113,7 @@ const findPerms = (ids: string[]) => allPermissions.filter(p => ids.includes(p.i
   // Rôle administrateur réseau
   administrateur_reseau: [
     { id: 'portalAdministrateurReseau', name: 'Mon Portail', icon: 'Home' },
-    ...findPerms(['networkEquipment', 'networkSubscriptions', 'inventory', 'dailyRoundsReseau', 'myTasks', 'planningTasks', 'qhseTickets', 'personalInfo', 'reportIncident', 'reportSecurityIncident', 'reportBiomedicalIncident'])
+    ...findPerms(['networkEquipment', 'networkSubscriptions', 'inventory', 'dailyRoundsReseau', 'myTasks', 'planningTasks', 'qhseTickets', 'personalInfo', 'reportSecurityIncident', 'reportBiomedicalIncident'])
   ],
 };
 
