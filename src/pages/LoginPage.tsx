@@ -6,7 +6,7 @@ import { Icon } from '@/components/Icon';
 import { ForgotPasswordDialog } from '@/components/auth/ForgotPasswordDialog';
 
 interface LoginPageProps {
-  onLogin: (email: string, pass: string) => Promise<boolean>;
+  onLogin: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const LoginPage = ({ onLogin }: LoginPageProps) => {
@@ -18,9 +18,10 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await onLogin(email, password); // Use email for login
-    if (!success) {
-      setError('Email ou mot de passe incorrect');
+    setError('');
+    const result = await onLogin(email, password);
+    if (!result.success) {
+      setError(result.error || 'Erreur de connexion');
     }
   };
 

@@ -11,6 +11,31 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
   const [currentUser, setCurrentUser] = useState<{ username: string; details: User } | null>(null);
   const [users, setUsers] = useState<Users>(initialUsers); // Will be populated from DB
 
+  const clearLocalAuth = async () => {
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch {
+      // ignore
+    }
+    localStorage.removeItem('currentUserId');
+    localStorage.removeItem('auth_token');
+    setCurrentUser(null);
+  };
+
+  const mapAuthError = (error: { message?: string; status?: number } | null) => {
+    const message = (error?.message || '').toLowerCase();
+    if (error?.status === 422 || message.includes('email not confirmed')) {
+      return "Email non confirmé. Vérifiez votre boîte mail ou désactivez la confirmation email dans Supabase Auth.";
+    }
+    if (message.includes('invalid login credentials') || message.includes('invalid credentials')) {
+      return "Email ou mot de passe incorrect (nouveau projet Supabase : recréez l'utilisateur dans Authentication).";
+    }
+    if (message.includes('user not found')) {
+      return "Utilisateur introuvable sur ce projet Supabase.";
+    }
+    return error?.message || "Erreur lors de la connexion.";
+  };
+
   // Function to fetch all profiles from API
   const fetchAllProfiles = async () => {
     try {
@@ -68,13 +93,29 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
     const initializeAuth = async () => {
       try {
         const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.warn('Session Supabase invalide (ancien projet ?):', sessionError.message);
+          await clearLocalAuth();
+          return;
+        }
+
+        if (!session) {
+          await clearLocalAuth();
+          return;
+        }
+
+        const {
           data: { user },
           error: userError,
         } = await supabase.auth.getUser();
 
         if (userError || !user) {
-          localStorage.removeItem('currentUserId');
-          setCurrentUser(null);
+          console.warn('Utilisateur Supabase introuvable:', userError?.message);
+          await clearLocalAuth();
           return;
         }
 
@@ -86,15 +127,13 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
 
         if (profileError) {
           console.error("Error fetching profile on init (Supabase):", profileError.message);
-          localStorage.removeItem('currentUserId');
-          setCurrentUser(null);
+          await clearLocalAuth();
           return;
         }
 
         if (!profile) {
           console.warn("No profile found on init (Supabase) for user:", user.id);
-          localStorage.removeItem('currentUserId');
-          setCurrentUser(null);
+          await clearLocalAuth();
           return;
         }
 
@@ -131,23 +170,27 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
           await fetchAllProfiles();
       } catch (error) {
         console.error("Error initializing auth with Supabase:", error);
-        localStorage.removeItem('currentUserId');
-        setCurrentUser(null);
+        await clearLocalAuth();
       }
     };
 
     initializeAuth();
   }, []);
 
-  const handleLogin = async (email: string, pass: string): Promise<boolean> => {
+  const handleLogin = async (
+    email: string,
+    pass: string
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
+      await clearLocalAuth();
+
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password: pass,
       });
 
       if (error || !data.user) {
-        throw new Error(error?.message || 'Identifiants invalides');
+        throw new Error(mapAuthError(error));
       }
 
       const user = data.user;
@@ -159,7 +202,11 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
         .maybeSingle();
 
       if (profileError || !profile) {
-        throw new Error(profileError?.message || 'Profil introuvable');
+        await supabase.auth.signOut({ scope: 'local' });
+        throw new Error(
+          profileError?.message ||
+            "Connexion Auth OK mais profil absent. Exécutez les migrations SQL sur le nouveau projet Supabase, puis créez l'utilisateur dans public.profiles."
+        );
       }
       // Fallback: détecter le rôle si vide
       let detectedRole = profile.role;
@@ -192,10 +239,11 @@ export const useAuth = ({ initialUsers }: UseAuthProps) => {
       localStorage.setItem('currentUserId', user.id);
       showSuccess("Connexion réussie !");
       await fetchAllProfiles();
-      return true;
+      return { success: true };
     } catch (error: any) {
-      showError(error.message || "Erreur lors de la connexion.");
-      return false;
+      const message = error?.message || mapAuthError(error);
+      showError(message);
+      return { success: false, error: message };
     }
   };
 
