@@ -16,7 +16,7 @@ Permet à un administrateur (rôle `superadmin`) de réinitialiser le mot de pas
 supabase login
 ```
 
-Puis (remplacer `VOTRE_PROJECT_REF` par l’ID du projet, ex. `afutvxbklbcxjpgrzoor` si c’est votre projet) :
+Puis (remplacer `VOTRE_PROJECT_REF` par l’ID du projet, ex. `lpaakleuwselpyqjbwao`) :
 
 ```powershell
 supabase link --project-ref VOTRE_PROJECT_REF
