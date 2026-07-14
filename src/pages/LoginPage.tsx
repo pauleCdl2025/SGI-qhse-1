@@ -33,71 +33,89 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-[#F8FAFC]">
-      {/* Ambiance douce — formes organiques aux couleurs du logo */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-32 top-0 h-[28rem] w-[28rem] rounded-full bg-cyan-100/50 blur-3xl" />
-        <div className="absolute -right-24 top-20 h-[22rem] w-[22rem] rounded-full bg-teal-100/40 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-blue-100/30 blur-3xl" />
-        <div
-          className="absolute inset-0 opacity-[0.35]"
-          style={{
-            backgroundImage: "radial-gradient(circle at 1px 1px, rgb(148 163 184 / 0.35) 1px, transparent 0)",
-            backgroundSize: "28px 28px",
-          }}
-        />
-      </div>
-
-      <main className="relative z-10 flex flex-1 items-center justify-center px-4 py-12 md:py-16">
-        <div className="grid w-full max-w-5xl items-center gap-10 lg:grid-cols-2 lg:gap-16">
-          {/* Colonne marque */}
-          <div className="fade-in hidden text-left lg:block">
-            <p className="section-label mb-4">Bienvenue</p>
-            <img
-              src={BRAND.logoUrl}
-              alt={`Logo ${BRAND.name}`}
-              className="mb-6 h-20 w-20 rounded-2xl object-contain shadow-lg shadow-cyan-600/10 ring-1 ring-slate-200/80"
+    <div className="flex min-h-screen flex-col bg-white">
+      <div className="grid flex-1 lg:grid-cols-2">
+        {/* Panneau marque — plan visuel dominant */}
+        <aside className="relative hidden overflow-hidden bg-[#0B1F33] lg:flex lg:flex-col lg:justify-between lg:px-12 lg:py-12 xl:px-16 xl:py-14">
+          <div aria-hidden className="pointer-events-none absolute inset-0">
+            <div className="login-orb absolute -left-24 top-[-10%] h-[28rem] w-[28rem] rounded-full bg-cyan-500/25 blur-3xl" />
+            <div className="login-orb-delay absolute -right-16 bottom-[-5%] h-[22rem] w-[22rem] rounded-full bg-teal-400/20 blur-3xl" />
+            <div className="absolute left-1/3 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-blue-500/15 blur-3xl" />
+            <div
+              className="absolute inset-0 opacity-[0.18]"
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle at 1px 1px, rgb(255 255 255 / 0.35) 1px, transparent 0)",
+                backgroundSize: "26px 26px",
+              }}
             />
-            <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-slate-900 xl:text-5xl">
-              {BRAND.name}
-            </h1>
-            <p className="mt-4 max-w-md text-lg leading-relaxed text-slate-500">
-              Accédez à votre espace {BRAND.tagline.toLowerCase()} — qualité, sécurité,
-              maintenance et planification en un seul endroit.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              {["QHSE", "Sécurité", "Biomédical"].map((label) => (
-                <span
-                  key={label}
-                  className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-slate-600 shadow-sm ring-1 ring-slate-200/80"
-                >
-                  {label}
-                </span>
-              ))}
+            <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#071624] to-transparent" />
+          </div>
+
+          <div className="relative z-10">
+            <div className="login-reveal flex items-center gap-3">
+              <img
+                src={BRAND.logoUrl}
+                alt=""
+                className="h-12 w-12 rounded-2xl object-contain ring-1 ring-white/20 shadow-lg shadow-cyan-900/40"
+              />
+              <span className="font-display text-xl font-bold tracking-tight text-white">
+                {BRAND.shortName}
+              </span>
             </div>
           </div>
 
-          {/* Carte connexion */}
-          <div className="fade-in mx-auto w-full max-w-md">
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-8 shadow-xl shadow-slate-200/50 md:p-10">
-              <div className="mb-8 text-center lg:text-left">
-                <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-50 to-teal-50 ring-1 ring-cyan-100 lg:mx-0">
-                  <img
-                    src={BRAND.logoUrl}
-                    alt={`Logo ${BRAND.shortName}`}
-                    className="h-11 w-11 rounded-xl object-contain"
-                  />
-                </div>
-                <p className="section-label mb-2 lg:hidden">Connexion</p>
-                <h2 className="font-display text-2xl font-bold text-slate-900 md:text-[1.65rem]">
-                  Se connecter
-                </h2>
-                <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                  Entrez vos identifiants pour accéder à la plateforme CDL.
-                </p>
-              </div>
+          <div className="relative z-10 max-w-lg">
+            <p className="login-reveal login-reveal-delay-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300/90">
+              {BRAND.tagline}
+            </p>
+            <h1 className="login-reveal login-reveal-delay-2 mt-5 font-display text-4xl font-bold leading-[1.15] tracking-tight text-white xl:text-[2.75rem]">
+              {BRAND.name}
+            </h1>
+            <p className="login-reveal login-reveal-delay-3 mt-5 text-base leading-relaxed text-slate-300 xl:text-lg">
+              Pilotez la qualité, la sécurité et les opérations hospitalières
+              depuis un seul espace, conçu pour les équipes du CDL.
+            </p>
+          </div>
 
-              <form onSubmit={handleSubmit} className="space-y-5">
+          <p className="login-reveal login-reveal-delay-4 relative z-10 text-sm text-slate-400">
+            Accès réservé aux collaborateurs autorisés
+          </p>
+        </aside>
+
+        {/* Formulaire */}
+        <main className="relative flex flex-col bg-[#F7FAFC]">
+          <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden lg:hidden">
+            <div className="absolute -right-20 -top-16 h-56 w-56 rounded-full bg-cyan-200/40 blur-3xl" />
+            <div className="absolute -bottom-10 -left-16 h-48 w-48 rounded-full bg-teal-100/50 blur-3xl" />
+          </div>
+
+          {/* Bandeau mobile */}
+          <div className="relative border-b border-slate-200/70 bg-[#0B1F33] px-5 py-5 lg:hidden">
+            <div className="flex items-center gap-3">
+              <img
+                src={BRAND.logoUrl}
+                alt={`Logo ${BRAND.shortName}`}
+                className="h-10 w-10 rounded-xl object-contain ring-1 ring-white/15"
+              />
+              <div>
+                <p className="font-display text-base font-bold text-white">{BRAND.shortName}</p>
+                <p className="text-xs text-cyan-200/80">{BRAND.tagline}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative z-10 flex flex-1 flex-col justify-center px-5 py-10 sm:px-8 md:px-12 lg:px-14 xl:px-20">
+            <div className="login-reveal mx-auto w-full max-w-[26rem]">
+              <p className="section-label mb-3">Connexion sécurisée</p>
+              <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900">
+                Bienvenue
+              </h2>
+              <p className="mt-2 text-[0.95rem] leading-relaxed text-slate-500">
+                Connectez-vous pour accéder à votre espace {BRAND.name}.
+              </p>
+
+              <form onSubmit={handleSubmit} className="mt-9 space-y-5">
                 <div className="space-y-2">
                   <label htmlFor="login-email" className="block text-sm font-semibold text-slate-700">
                     Email
@@ -109,7 +127,7 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     autoComplete="email"
-                    className="h-11 rounded-xl border-slate-200 bg-slate-50/50 px-4 transition focus-visible:ring-cyan-500/30"
+                    className="h-12 rounded-xl border-slate-200 bg-white px-4 shadow-sm shadow-slate-900/5 transition focus-visible:border-cyan-500/40 focus-visible:ring-cyan-500/25"
                     placeholder="votre@email.com"
                   />
                 </div>
@@ -125,14 +143,14 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
-                    className="h-11 rounded-xl border-slate-200 bg-slate-50/50 px-4 pr-11 transition focus-visible:ring-cyan-500/30"
+                    className="h-12 rounded-xl border-slate-200 bg-white px-4 pr-12 shadow-sm shadow-slate-900/5 transition focus-visible:border-cyan-500/40 focus-visible:ring-cyan-500/25"
                     placeholder="••••••••"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-1.5 top-8 h-8 w-8 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    className="absolute right-1.5 top-[2.15rem] h-9 w-9 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
                   >
@@ -141,26 +159,35 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
                 </div>
 
                 {error && (
-                  <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3.5 py-3 text-sm text-red-600">
-                    <Icon name="AlertCircle" className="h-4 w-4 shrink-0" />
-                    {error}
+                  <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 px-3.5 py-3 text-sm text-red-600">
+                    <Icon name="AlertCircle" className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{error}</span>
                   </div>
                 )}
 
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="brand-gradient h-12 w-full rounded-xl text-base font-semibold text-white shadow-lg shadow-cyan-600/20 transition hover:opacity-95"
+                  className="brand-gradient btn-animate h-12 w-full rounded-xl text-base font-semibold text-white shadow-lg shadow-cyan-700/25 hover:opacity-[0.96]"
                 >
-                  <Icon name="LogIn" className="mr-2 h-5 w-5" />
-                  {isSubmitting ? 'Connexion…' : 'Se connecter'}
+                  {isSubmitting ? (
+                    <>
+                      <Icon name="Clock" className="mr-2 h-5 w-5 animate-spin" />
+                      Connexion…
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="LogIn" className="mr-2 h-5 w-5" />
+                      Se connecter
+                    </>
+                  )}
                 </Button>
               </form>
 
               <div className="mt-6 text-center">
                 <Button
                   variant="link"
-                  className="font-medium text-cyan-700 hover:text-cyan-800"
+                  className="h-auto p-0 text-sm font-medium text-cyan-700 hover:text-cyan-800"
                   onClick={() => setIsForgotPasswordOpen(true)}
                 >
                   Mot de passe oublié ?
@@ -168,12 +195,10 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
               </div>
             </div>
           </div>
-        </div>
-      </main>
-
-      <div className="relative z-10">
-        <AppFooter />
+        </main>
       </div>
+
+      <AppFooter variant="dark" />
 
       <ForgotPasswordDialog
         isOpen={isForgotPasswordOpen}

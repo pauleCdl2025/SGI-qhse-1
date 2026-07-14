@@ -194,4 +194,52 @@
   .section-label {
     @apply text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700;
   }
+
+  .login-reveal {
+    animation: loginReveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .login-reveal-delay-1 {
+    animation-delay: 0.08s;
+  }
+
+  .login-reveal-delay-2 {
+    animation-delay: 0.16s;
+  }
+
+  .login-reveal-delay-3 {
+    animation-delay: 0.28s;
+  }
+
+  .login-reveal-delay-4 {
+    animation-delay: 0.4s;
+  }
+
+  .login-orb {
+    animation: loginOrb 14s ease-in-out infinite alternate;
+  }
+
+  .login-orb-delay {
+    animation: loginOrb 18s ease-in-out infinite alternate-reverse;
+  }
+
+  @keyframes loginReveal {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes loginOrb {
+    from {
+      transform: translate(0, 0) scale(1);
+    }
+    to {
+      transform: translate(18px, -22px) scale(1.08);
+    }
+  }
 }
