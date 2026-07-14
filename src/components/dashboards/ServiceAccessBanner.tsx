@@ -9,24 +9,31 @@ interface ServiceAccessBannerProps {
 
 export const ServiceAccessBanner = ({ setActiveTab }: ServiceAccessBannerProps) => {
   return (
-    <Card className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white shadow-lg">
-      <CardHeader>
-        <CardTitle className="flex items-center text-white">
-          <Icon name="LayoutGrid" className="mr-2 h-6 w-6" />
-          Accès Rapide aux Services
+    <Card className="overflow-hidden border-slate-200/80 bg-white shadow-sm">
+      <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-cyan-50/80 via-white to-teal-50/50 pb-4">
+        <CardTitle className="flex items-center gap-2 font-display text-lg text-slate-900">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-600 via-blue-600 to-teal-600 text-white shadow-sm">
+            <Icon name="LayoutGrid" className="h-4 w-4" />
+          </span>
+          Accès rapide aux services
         </CardTitle>
+        <p className="text-sm text-slate-500">
+          Naviguez vers les modules disponibles sur la plateforme.
+        </p>
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {allPermissions.map(permission => (
-            <Button 
-              key={permission.id} 
-              variant="secondary" 
-              className="bg-white/20 hover:bg-white/30 text-white flex flex-col h-auto py-3 px-2 text-center"
+      <CardContent className="pt-5">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          {allPermissions.map((permission) => (
+            <Button
+              key={permission.id}
+              variant="outline"
+              className="flex h-auto flex-col gap-1.5 px-2 py-3 text-center"
               onClick={() => setActiveTab(permission.id)}
             >
-              <Icon name={permission.icon} className="h-6 w-6 mb-1" />
-              <span className="text-xs font-medium">{permission.name}</span>
+              <Icon name={permission.icon} className="h-5 w-5 text-cyan-700" />
+              <span className="text-[11px] font-medium leading-tight text-slate-700">
+                {permission.name}
+              </span>
             </Button>
           ))}
         </div>

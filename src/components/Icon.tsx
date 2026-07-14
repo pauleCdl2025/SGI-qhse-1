@@ -3,7 +3,7 @@ import {
   Hourglass, Check, ClipboardCheck, Save, History, UserCog, Ticket, CheckCheck, Settings, Filter,
   CalendarPlus, FileText, Download, Bell, BarChart, Camera, ListChecks, ClipboardList, Play, X, UserPlus, HeartPulse, Menu, Crown, Stethoscope, LucideProps, UserX,
   MapPin, LayoutGrid, List, ChevronLeft, ChevronRight, Pencil, Eye, EyeOff, Mail, KeyRound, LayoutDashboard, CalendarDays, Upload, ExternalLink, Edit, ArrowLeft, FileBarChart,
-  ShieldCheck, Flame, Info, PackageSearch, Anchor
+  ShieldCheck, Flame, Info, PackageSearch, Anchor, User, ArrowRight, Phone, Globe, Shirt, UserCheck
 } from 'lucide-react';
 
 const icons = {
@@ -11,7 +11,7 @@ const icons = {
   Hourglass, Check, ClipboardCheck, Save, History, UserCog, Ticket, CheckCheck, Settings, Filter,
   CalendarPlus, FileText, Download, Bell, BarChart, Camera, ListChecks, ClipboardList, Play, X, UserPlus, HeartPulse, Menu, Crown, Stethoscope, UserX,
   MapPin, LayoutGrid, List, ChevronLeft, ChevronRight, Pencil, Eye, EyeOff, Mail, KeyRound, LayoutDashboard, CalendarDays, Upload, ExternalLink, Edit, ArrowLeft, FileBarChart,
-  ShieldCheck, Flame, Info, PackageSearch, Anchor
+  ShieldCheck, Flame, Info, PackageSearch, Anchor, User, ArrowRight, Phone, Globe, Shirt, UserCheck
 };
 
 export const Icon = ({ name, ...props }: { name: string } & LucideProps) => {

@@ -3,8 +3,12 @@ import html2canvas from 'html2canvas';
 import { Audit, User, Users } from '@/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { BRAND } from '@/lib/brand';
 
-const LOGO_URL = 'https://page1.genspark.site/v1/base64_upload/85255e9e3f43d5940a170bdbd6d7b858';
+const LOGO_URL =
+  typeof window !== 'undefined'
+    ? `${window.location.origin}${BRAND.logoUrl}`
+    : BRAND.logoUrl;
 
 interface Finding {
   id: string;

@@ -61,6 +61,8 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { showSuccess, showError } from '@/utils/toast';
 import { IncidentType, IncidentService } from '@/types';
+import { AppFooter } from '@/components/layout/AppFooter';
+import { BRAND } from '@/lib/brand';
 
 // Props de la page principale
 interface DashboardPageProps {
@@ -509,35 +511,35 @@ const DashboardPage = (props: DashboardPageProps) => {
     };
   }, [user, props.incidents, props.visitors, props.plannedTasks, props.maintenanceTasks, props.bookings, props.biomedicalEquipment, props.users]);
 
-  const NavLinks = () => {
+  const NavLinks = ({ mobile = false }: { mobile?: boolean }) => {
     if (!userTabs || userTabs.length === 0) {
       console.warn('NavLinks - Aucun onglet disponible. Rôle:', user.role, 'userTabs:', userTabs);
       return null;
     }
-    return userTabs.map(tab => (
-      <button
-        key={tab.id}
-        onClick={() => {
-          setActiveTab(tab.id);
-          if (isMobile) setIsMobileNavOpen(false);
-        }}
-        className={`
-          relative px-4 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ease-in-out
-          ${resolvedActiveTab === tab.id 
-            ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white shadow-lg transform scale-105' 
-            : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
-          }
-          hover:scale-105 active:scale-95
-          flex items-center space-x-2
-        `}
-      >
-        <Icon name={tab.icon} className="h-4 w-4" />
-        <span>{tab.name}</span>
-        {resolvedActiveTab === tab.id && (
-          <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/50 rounded-full"></span>
-        )}
-      </button>
-    ));
+    return userTabs.map(tab => {
+      const isActive = resolvedActiveTab === tab.id;
+      return (
+        <button
+          key={tab.id}
+          onClick={() => {
+            setActiveTab(tab.id);
+            if (isMobile) setIsMobileNavOpen(false);
+          }}
+          className={`
+            relative flex items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-200
+            ${isActive
+              ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white shadow-md shadow-cyan-600/20'
+              : mobile
+                ? 'text-slate-600 hover:bg-cyan-50 hover:text-cyan-800'
+                : 'text-slate-600 hover:bg-cyan-50 hover:text-cyan-800'
+            }
+          `}
+        >
+          <Icon name={tab.icon} className="h-4 w-4 shrink-0" />
+          <span>{tab.name}</span>
+        </button>
+      );
+    });
   };
 
   const renderActiveTab = () => {
@@ -929,48 +931,68 @@ const DashboardPage = (props: DashboardPageProps) => {
     }
   };
 
+  const roleLabel = user.role.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50/20 to-blue-50/30">
-      <header className="bg-white/80 backdrop-blur-md shadow-lg border-b border-gray-200/50 sticky top-0 z-50">
-        <div className="px-4 md:px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3 md:space-x-4">
+    <div className="flex min-h-screen flex-col bg-[#F8FAFC]">
+      <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3 md:px-6 md:py-3.5">
+          <div className="flex min-w-0 items-center gap-3 md:gap-4">
             {isMobile && (
               <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="btn-animate">
-                    <Icon name="Menu" className="h-6 w-6" />
+                  <Button variant="ghost" size="icon" className="shrink-0 text-slate-600">
+                    <Icon name="Menu" className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="p-0 w-64 bg-gradient-to-b from-gray-900 to-gray-800 text-white">
-                  <nav className="flex flex-col pt-6">
-                    <NavLinks />
+                <SheetContent side="left" className="w-72 border-r border-slate-200 bg-white p-0">
+                  <div className="border-b border-slate-100 px-5 py-5">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={BRAND.logoUrl}
+                        alt={`Logo ${BRAND.shortName}`}
+                        className="h-10 w-10 rounded-xl object-contain ring-1 ring-slate-200"
+                      />
+                      <div>
+                        <p className="font-display text-sm font-bold text-slate-900">{BRAND.shortName}</p>
+                        <p className="text-xs text-slate-500">Navigation</p>
+                      </div>
+                    </div>
+                  </div>
+                  <nav className="flex flex-col gap-1 p-3">
+                    <NavLinks mobile />
                   </nav>
                 </SheetContent>
               </Sheet>
             )}
-            <div className="flex items-center space-x-3">
-              <img src="https://page1.genspark.site/v1/base64_upload/85255e9e3f43d5940a170bdbd6d7b858" alt="Logo CDL" className="h-10 w-10 md:h-12 md:w-12 rounded-lg shadow-md" />
+            <div className="flex min-w-0 items-center gap-3">
+              <img
+                src={BRAND.logoUrl}
+                alt={`Logo ${BRAND.shortName}`}
+                className="h-10 w-10 shrink-0 rounded-xl object-contain shadow-sm ring-1 ring-slate-200/80 md:h-11 md:w-11"
+              />
               {!isMobile && (
-                <div>
-                  <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 bg-clip-text text-transparent">
-                    Centre Diagnostic Libreville
+                <div className="min-w-0">
+                  <h1 className="truncate font-display text-lg font-bold tracking-tight text-slate-900 md:text-xl">
+                    <span className="gradient-text">{BRAND.name}</span>
                   </h1>
-                  <p className="text-xs md:text-sm text-gray-600 font-medium">
-                    {user.role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  <p className="truncate text-xs font-medium text-slate-500">
+                    {roleLabel} · {BRAND.tagline}
                   </p>
                 </div>
               )}
             </div>
           </div>
-          <div className="flex items-center space-x-2 md:space-x-4">
+
+          <div className="flex shrink-0 items-center gap-1.5 md:gap-2.5">
             {userTabs && userTabs.length > 0 && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setActiveTab(homeTabId)}
-                className="hidden md:flex items-center text-gray-600 hover:text-cyan-600 btn-animate"
+                className="hidden text-slate-600 lg:flex"
               >
-                <Icon name="LayoutDashboard" className="mr-2 h-4 w-4" /> Tableau de Bord
+                <Icon name="LayoutDashboard" className="mr-1.5 h-4 w-4" /> Accueil
               </Button>
             )}
             {resolvedActiveTab !== homeTabId && (
@@ -978,52 +1000,51 @@ const DashboardPage = (props: DashboardPageProps) => {
                 variant="outline"
                 size="sm"
                 onClick={() => setActiveTab(homeTabId)}
-                className="hidden md:flex items-center text-gray-600 hover:text-cyan-600 border-cyan-100"
+                className="hidden md:flex"
               >
-                <Icon name="ArrowLeft" className="mr-2 h-4 w-4" /> Retour à mon portail
+                <Icon name="ArrowLeft" className="mr-1.5 h-4 w-4" /> Mon portail
               </Button>
             )}
-            <NotificationBell 
+            <NotificationBell
               userId={user.id}
-              notifications={notifications} 
+              notifications={notifications}
               onMarkAsRead={markNotificationsAsRead}
               onMarkNotificationAsRead={markNotificationAsRead}
               onDeleteAll={deleteAllNotifications}
-              onNotificationClick={(link) => {
-                console.log('Notification clicked, setting active tab to:', link);
-                setActiveTab(link);
-              }}
+              onNotificationClick={(link) => setActiveTab(link)}
             />
-            <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-lg border border-cyan-100">
-              <Icon name="User" className="h-4 w-4 text-cyan-600" />
-              <span className="text-sm text-gray-700">
-                <span className="font-medium text-gray-900">{user.first_name} {user.last_name}</span>
+            <div className="hidden items-center gap-2 rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-1.5 md:flex">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-cyan-700 shadow-sm">
+                <Icon name="User" className="h-3.5 w-3.5" />
+              </span>
+              <span className="max-w-[10rem] truncate text-sm font-semibold text-slate-800">
+                {user.first_name} {user.last_name}
               </span>
             </div>
-            <Button onClick={onLogout} variant="destructive" className="btn-animate">
-              <Icon name="LogOut" className="md:mr-2 h-4 w-4" />
+            <Button onClick={onLogout} variant="outline" size="sm" className="border-red-100 text-red-600 hover:bg-red-50 hover:text-red-700">
+              <Icon name="LogOut" className="md:mr-1.5 h-4 w-4" />
               <span className="hidden md:inline">Déconnexion</span>
             </Button>
           </div>
         </div>
       </header>
 
-      {userTabs && userTabs.length > 0 && (
-        <nav className={`bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 text-white shadow-xl border-b border-gray-700/50 ${isMobile ? 'hidden' : 'block'}`}>
-          <div className="px-6 flex space-x-1 overflow-x-auto">
+      {!isMobile && userTabs && userTabs.length > 0 && (
+        <nav className="sticky top-[4.25rem] z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-[1600px] gap-1 overflow-x-auto px-4 py-2.5 md:px-6">
             <NavLinks />
           </div>
         </nav>
       )}
 
-      <main className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto fade-in">
+      <main className="fade-in mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-6 md:py-8 lg:px-8">
         {isMobile && resolvedActiveTab !== homeTabId && (
           <div className="mb-4">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setActiveTab(homeTabId)}
-              className="flex items-center gap-2 w-full justify-center bg-white/80 text-gray-700 border-cyan-100"
+              className="flex w-full items-center justify-center gap-2"
             >
               <Icon name="ArrowLeft" className="h-4 w-4" /> Retour à mon portail
             </Button>
@@ -1031,6 +1052,8 @@ const DashboardPage = (props: DashboardPageProps) => {
         )}
         {renderActiveTab()}
       </main>
+
+      <AppFooter />
     </div>
   );
 };

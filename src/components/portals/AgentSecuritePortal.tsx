@@ -10,6 +10,7 @@ import { PortalExcelActions } from "@/components/shared/PortalExcelActions";
 import { generatePortalReportPDF } from "@/utils/portalReportsGenerator";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
+import { PortalPageHeader } from "@/components/shared/PortalPageHeader";
 
 interface PortalProps {
   user: User;
@@ -61,51 +62,40 @@ export const AgentSecuritePortal = ({ user, incidents, visitors, plannedTasks, n
 
   return (
     <div className="space-y-8 fade-in">
-      {/* En-tête personnalisé */}
-      <div className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white p-8 rounded-xl shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center mb-3">
-              <Icon name="Shield" className="text-4xl mr-3" />
-              <h1 className="text-4xl font-bold">Portail Sécurité</h1>
+      <PortalPageHeader
+        iconName="Shield"
+        title="Portail Sécurité"
+        subtitle={`${user.civility} ${user.first_name} ${user.last_name}`}
+        meta={format(today, "EEEE d MMMM yyyy", { locale: fr }) + " - " + format(today, "HH:mm")}
+        actions={
+          <>
+            <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-center">
+              <div className="text-sm text-cyan-700">Poste de Garde</div>
+              <div className="text-2xl font-bold text-slate-900">Actif</div>
             </div>
-            <p className="text-cyan-100 text-xl">
-              {user.civility} {user.first_name} {user.last_name}
-            </p>
-            <p className="text-cyan-200 mt-2">
-              {format(today, "EEEE d MMMM yyyy", { locale: fr })} - {format(today, "HH:mm")}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-3">
-            <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4">
-              <div className="text-sm text-cyan-100">Poste de Garde</div>
-              <div className="text-2xl font-bold">Actif</div>
-            </div>
-            <div className="flex gap-2">
-              <PortalExcelActions
-                portalType="agent_securite"
-                data={{
-                  incidents: securityIncidents,
-                  visitors,
-                  plannedTasks,
-                }}
+            <PortalExcelActions
+              portalType="agent_securite"
+              data={{
+                incidents: securityIncidents,
+                visitors,
+                plannedTasks,
+              }}
+            />
+            <Button
+              onClick={handleGenerateReport}
+              disabled={isGeneratingReport}
+              size="sm"
+              className="border border-slate-200 bg-white text-slate-700 hover:bg-cyan-50 hover:text-cyan-800"
+            >
+              <Icon
+                name={isGeneratingReport ? "Clock" : "Download"}
+                className={`mr-2 h-4 w-4 ${isGeneratingReport ? "animate-spin" : ""}`}
               />
-              <Button
-                onClick={handleGenerateReport}
-                disabled={isGeneratingReport}
-                size="sm"
-                className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
-              >
-                <Icon
-                  name={isGeneratingReport ? "Clock" : "Download"}
-                  className={`mr-2 h-4 w-4 ${isGeneratingReport ? "animate-spin" : ""}`}
-                />
-                {isGeneratingReport ? "Génération..." : "Rapport PDF"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+              {isGeneratingReport ? "Génération..." : "Rapport PDF"}
+            </Button>
+          </>
+        }
+      />
 
       {/* Statistiques */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

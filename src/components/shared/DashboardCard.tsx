@@ -15,33 +15,36 @@ export const DashboardCard = ({ title, value, iconName, colorClass, onClick }: D
   const CardComponent = isClickable ? 'button' : 'div';
 
   return (
-    <Card className={cn(
-      "card-hover border-2 bg-white/90 backdrop-blur-sm shadow-md hover:shadow-xl transition-all duration-300",
-      isClickable ? "cursor-pointer hover:scale-105 active:scale-95" : ""
-    )}>
-      <CardComponent onClick={onClick} className="w-full">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="text-xs md:text-sm font-medium text-gray-600 mb-1 uppercase tracking-wide">
+    <Card
+      className={cn(
+        "card-hover border bg-white",
+        isClickable && "cursor-pointer hover:border-cyan-200/80",
+      )}
+    >
+      <CardComponent onClick={onClick} className="w-full text-left">
+        <CardContent className="p-5 md:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 {title}
               </p>
-              <p className="text-2xl md:text-3xl font-bold text-gray-900">
+              <p className="font-display text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
                 {value}
               </p>
             </div>
-            <div className={cn(
-              "p-3 md:p-4 rounded-xl shadow-lg",
-              colorClass,
-              "transition-transform duration-300 hover:scale-110"
-            )}>
+            <div
+              className={cn(
+                "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl md:h-14 md:w-14",
+                colorClass,
+              )}
+            >
               <Icon name={iconName} className="text-xl md:text-2xl" />
             </div>
           </div>
           {isClickable && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <span className="text-xs text-gray-500 flex items-center">
-                Cliquer pour voir <Icon name="ArrowRight" className="ml-1 h-3 w-3" />
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <span className="flex items-center text-xs font-medium text-cyan-700">
+                Voir le détail <Icon name="ArrowRight" className="ml-1 h-3 w-3" />
               </span>
             </div>
           )}

@@ -10,6 +10,7 @@ import { PortalExcelActions } from "@/components/shared/PortalExcelActions";
 import { generatePortalReportPDF } from "@/utils/portalReportsGenerator";
 import { showSuccess, showError } from "@/utils/toast";
 import { Button } from "@/components/ui/button";
+import { PortalPageHeader } from "@/components/shared/PortalPageHeader";
 
 interface PortalProps {
   user: User;
@@ -59,22 +60,13 @@ export const TechnicienPortal = ({ user, incidents, plannedTasks, notifications,
 
   return (
     <div className="space-y-8 fade-in">
-      {/* En-tête personnalisé */}
-      <div className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white p-8 rounded-xl shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center mb-3">
-              <Icon name="Wrench" className="text-4xl mr-3" />
-              <h1 className="text-4xl font-bold">Portail Technique QHSE</h1>
-            </div>
-            <p className="text-cyan-100 text-xl">
-              {user.civility} {user.first_name} {user.last_name}
-            </p>
-            <p className="text-cyan-200 mt-2">
-              {format(today, "EEEE d MMMM yyyy", { locale: fr })} - {format(today, "HH:mm")}
-            </p>
-          </div>
-          <div className="flex gap-2">
+      <PortalPageHeader
+        iconName="Wrench"
+        title="Portail Technique QHSE"
+        subtitle={`${user.civility} ${user.first_name} ${user.last_name}`}
+        meta={format(today, "EEEE d MMMM yyyy", { locale: fr }) + " - " + format(today, "HH:mm")}
+        actions={
+          <>
             <PortalExcelActions
               portalType="technicien"
               data={{
@@ -86,7 +78,7 @@ export const TechnicienPortal = ({ user, incidents, plannedTasks, notifications,
               onClick={handleGenerateReport}
               disabled={isGeneratingReport}
               size="sm"
-              className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
+              className="border border-slate-200 bg-white text-slate-700 hover:bg-cyan-50 hover:text-cyan-800"
             >
               <Icon
                 name={isGeneratingReport ? "Clock" : "Download"}
@@ -94,9 +86,9 @@ export const TechnicienPortal = ({ user, incidents, plannedTasks, notifications,
               />
               {isGeneratingReport ? "Génération..." : "Rapport PDF"}
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Statistiques */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

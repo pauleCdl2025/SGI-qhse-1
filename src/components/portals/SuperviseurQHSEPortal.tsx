@@ -11,6 +11,7 @@ import { generatePortalReportPDF } from "@/utils/portalReportsGenerator";
 import { showSuccess, showError } from "@/utils/toast";
 import { PortalExcelActions } from "@/components/shared/PortalExcelActions";
 import { roleConfig } from "@/lib/data";
+import { PortalPageHeader } from "@/components/shared/PortalPageHeader";
 
 interface PortalProps {
   user: User;
@@ -72,24 +73,13 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
 
   return (
     <div className="space-y-8 fade-in">
-      {/* En-tête personnalisé */}
-      <div className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white p-8 rounded-xl shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center mb-3">
-              <Icon name="UserCog" className="text-4xl mr-3" />
-              <h1 className="text-4xl font-bold">
-                {user.role === 'assistante_qhse' ? 'Portail Assistante QHSE' : 'Portail QHSE'}
-              </h1>
-            </div>
-            <p className="text-cyan-100 text-xl">
-              {user.civility} {user.first_name} {user.last_name} - {user.role === 'assistante_qhse' ? 'Assistante Qualité, Hygiène, Sécurité et Environnement' : 'Superviseur Qualité, Hygiène, Sécurité et Environnement'}
-            </p>
-            <p className="text-cyan-200 mt-2">
-              {format(today, "EEEE d MMMM yyyy", { locale: fr })} - {format(today, "HH:mm")}
-            </p>
-          </div>
-          <div className="flex gap-2">
+      <PortalPageHeader
+        iconName="UserCog"
+        title={user.role === 'assistante_qhse' ? 'Portail Assistante QHSE' : 'Portail QHSE'}
+        subtitle={`${user.civility} ${user.first_name} ${user.last_name} - ${user.role === 'assistante_qhse' ? 'Assistante Qualité, Hygiène, Sécurité et Environnement' : 'Superviseur Qualité, Hygiène, Sécurité et Environnement'}`}
+        meta={format(today, "EEEE d MMMM yyyy", { locale: fr }) + " - " + format(today, "HH:mm")}
+        actions={
+          <>
             <PortalExcelActions
               portalType="superviseur_qhse"
               data={{
@@ -103,15 +93,15 @@ export const SuperviseurQHSEPortal = ({ user, incidents, visitors, plannedTasks,
             <Button
               onClick={handleGenerateReport}
               disabled={isGeneratingReport}
-              className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
+              className="border border-slate-200 bg-white text-slate-700 hover:bg-cyan-50 hover:text-cyan-800"
               size="sm"
             >
               <Icon name={isGeneratingReport ? "Clock" : "Download"} className={`mr-2 h-4 w-4 ${isGeneratingReport ? 'animate-spin' : ''}`} />
               {isGeneratingReport ? 'Génération...' : 'Exporter PDF'}
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Statistiques principales */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

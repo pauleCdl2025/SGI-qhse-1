@@ -4,81 +4,75 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 199 89% 48%;
-    --primary-foreground: 210 40% 98%;
+    /* Cyan médical #0891B2 */
+    --primary: 199 89% 37%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 210 30% 96%;
+    --muted-foreground: 215 16% 40%;
 
-    --accent: 192 95% 68%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent clair lié au logo */
+    --accent: 192 70% 94%;
+    --accent-foreground: 199 89% 28%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 199 89% 48%;
+    --border: 214 25% 90%;
+    --input: 214 25% 90%;
+    --ring: 199 89% 37%;
 
-    --radius: 0.75rem;
+    --radius: 0.875rem;
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 199 89% 40%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 192 95% 95%;
-    --sidebar-accent-foreground: 199 89% 40%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 199 89% 48%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 199 89% 37%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 192 70% 94%;
+    --sidebar-accent-foreground: 199 89% 28%;
+    --sidebar-border: 214 25% 90%;
+    --sidebar-ring: 199 89% 37%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    --background: 222 47% 7%;
     --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
+    --card: 222 47% 9%;
     --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
+    --popover: 222 47% 9%;
     --popover-foreground: 210 40% 98%;
-
     --primary: 199 89% 48%;
     --primary-foreground: 210 40% 98%;
-
-    --secondary: 217.2 32.6% 17.5%;
+    --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 192 95% 68%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 199 40% 18%;
+    --accent-foreground: 192 95% 75%;
+    --destructive: 0 63% 35%;
     --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 199 89% 20%;
-    --sidebar-foreground: 240 4.8% 95.9%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 199 89% 48%;
+    --sidebar-background: 199 50% 12%;
+    --sidebar-foreground: 210 40% 96%;
     --sidebar-primary: 192 95% 68%;
-    --sidebar-primary-foreground: 199 89% 20%;
-    --sidebar-accent: 199 89% 25%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 199 89% 30%;
+    --sidebar-primary-foreground: 199 50% 12%;
+    --sidebar-accent: 199 40% 18%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 199 30% 22%;
     --sidebar-ring: 192 95% 68%;
   }
 }
@@ -88,67 +82,68 @@
     @apply border-border;
   }
 
-  body {
-    @apply bg-gradient-to-br from-slate-50 via-cyan-50/20 to-blue-50/30 text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
-  }
-
-  /* Smooth scrolling */
   html {
     scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Custom scrollbar */
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "ss01" 1, "cv11" 1;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight text-slate-900;
+  }
+
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-muted;
+    @apply bg-muted/60;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-primary/20 rounded-full;
+    @apply rounded-full bg-primary/25;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-primary/30;
+    @apply bg-primary/40;
   }
 }
 
 @layer components {
-  /* Card animations */
   .card-hover {
-    @apply transition-all duration-300 ease-in-out;
+    @apply transition-all duration-200 ease-out;
   }
 
   .card-hover:hover {
-    @apply shadow-lg transform -translate-y-1;
+    @apply -translate-y-0.5 shadow-md;
   }
 
-  /* Button animations */
   .btn-animate {
-    @apply transition-all duration-200 ease-in-out;
+    @apply transition-all duration-200 ease-out;
   }
 
   .btn-animate:hover {
-    @apply transform scale-105;
+    @apply brightness-105;
   }
 
   .btn-animate:active {
-    @apply transform scale-95;
+    @apply scale-[0.98];
   }
 
-  /* Fade in animation */
   .fade-in {
-    animation: fadeIn 0.5s ease-in-out;
+    animation: fadeIn 0.45s ease-out;
   }
 
   @keyframes fadeIn {
     from {
       opacity: 0;
-      transform: translateY(10px);
+      transform: translateY(8px);
     }
     to {
       opacity: 1;
@@ -156,14 +151,13 @@
     }
   }
 
-  /* Slide in animation */
   .slide-in {
-    animation: slideIn 0.3s ease-out;
+    animation: slideIn 0.28s ease-out;
   }
 
   @keyframes slideIn {
     from {
-      transform: translateX(-100%);
+      transform: translateX(-12px);
       opacity: 0;
     }
     to {
@@ -172,22 +166,32 @@
     }
   }
 
-  /* Pulse animation */
   .pulse-slow {
     animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 
-  /* Gradient text - basé sur les couleurs du logo médical (cyan, bleu, teal) */
+  /* Gradient texte — palette logo cyan / bleu / teal */
   .gradient-text {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600;
+    @apply bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 bg-clip-text text-transparent;
   }
 
-  /* Glass morphism effect */
+  .brand-gradient {
+    @apply bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600;
+  }
+
   .glass {
-    @apply bg-white/80 backdrop-blur-md border border-white/20;
+    @apply border border-white/40 bg-white/90 backdrop-blur-md;
   }
 
-  .glass-dark {
-    @apply bg-gray-900/80 backdrop-blur-md border border-white/10;
+  .page-title {
+    @apply font-display text-2xl font-bold tracking-tight text-slate-900 md:text-3xl;
+  }
+
+  .page-subtitle {
+    @apply mt-1 text-sm leading-relaxed text-slate-500 md:text-base;
+  }
+
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700;
   }
 }

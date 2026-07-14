@@ -10,6 +10,7 @@ import { fr } from "date-fns/locale";
 import { generatePortalReportPDF } from "../../utils/portalReportsGenerator";
 import { showSuccess, showError } from "../../utils/toast";
 import { PortalExcelActions } from "../shared/PortalExcelActions";
+import { PortalPageHeader } from "../shared/PortalPageHeader";
 
 interface BiomedicalPortalProps {
   user: User;
@@ -101,48 +102,38 @@ export const BiomedicalPortal = ({ user, biomedicalEquipment, maintenanceTasks, 
 
   return (
     <div className="space-y-8 fade-in">
-      <div className="bg-gradient-to-r from-cyan-600 via-blue-600 to-teal-600 text-white p-8 rounded-xl shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center mb-3">
-              <Icon name="HeartPulse" className="text-4xl mr-3" />
-              <h1 className="text-4xl font-bold">Portail Biomédical</h1>
+      <PortalPageHeader
+        iconName="HeartPulse"
+        title="Portail Biomédical"
+        subtitle={`${user.civility} ${ownerLabel} - Gestion des équipements biomédicaux`}
+        meta={format(today, "EEEE d MMMM yyyy", { locale: fr }) + " - " + format(today, "HH:mm", { locale: fr })}
+        actions={
+          <>
+            <div className="hidden rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-center md:block">
+              <p className="text-sm uppercase tracking-wide text-cyan-700">Suivi global</p>
+              <p className="text-3xl font-bold text-slate-900">{stats.operational}/{stats.total}</p>
+              <p className="text-sm text-slate-500">équipements opérationnels</p>
             </div>
-            <p className="text-cyan-100 text-xl">
-              {user.civility} {ownerLabel} - Gestion des équipements biomédicaux
-            </p>
-            <p className="text-cyan-200 mt-2">
-              {format(today, "EEEE d MMMM yyyy", { locale: fr })} - {format(today, "HH:mm", { locale: fr })}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-3">
-            <div className="hidden md:block text-right">
-              <p className="text-cyan-100 text-sm uppercase tracking-wide">Suivi global</p>
-              <p className="text-3xl font-bold">{stats.operational}/{stats.total}</p>
-              <p className="text-cyan-200 text-sm">équipements opérationnels</p>
-            </div>
-            <div className="flex gap-2">
-              <PortalExcelActions
-                portalType="biomedical"
-                data={{
-                  biomedicalEquipment,
-                  maintenanceTasks,
-                  incidents: biomedicalIncidents,
-                }}
-              />
-              <Button
-                onClick={handleGenerateReport}
-                disabled={isGeneratingReport}
-                className="bg-white/20 hover:bg-white/30 text-white border border-white/30 backdrop-blur-sm"
-                size="sm"
-              >
-                <Icon name={isGeneratingReport ? "Clock" : "Download"} className={`mr-2 h-4 w-4 ${isGeneratingReport ? 'animate-spin' : ''}`} />
-                {isGeneratingReport ? 'Génération...' : 'Exporter PDF'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+            <PortalExcelActions
+              portalType="biomedical"
+              data={{
+                biomedicalEquipment,
+                maintenanceTasks,
+                incidents: biomedicalIncidents,
+              }}
+            />
+            <Button
+              onClick={handleGenerateReport}
+              disabled={isGeneratingReport}
+              className="border border-slate-200 bg-white text-slate-700 hover:bg-cyan-50 hover:text-cyan-800"
+              size="sm"
+            >
+              <Icon name={isGeneratingReport ? "Clock" : "Download"} className={`mr-2 h-4 w-4 ${isGeneratingReport ? 'animate-spin' : ''}`} />
+              {isGeneratingReport ? 'Génération...' : 'Exporter PDF'}
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <DashboardCard
